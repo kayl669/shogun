@@ -1,0 +1,590 @@
+:root {
+    --bg: #eef3f7;
+    --card: #fff;
+    --text: #172033;
+    --muted: #70809a;
+    --blue: #0969c8;
+    --green: #168b47;
+    --greenbg: #e7f7ed;
+    --red: #d92d36;
+    --redbg: #fdebed;
+    --line: #dfe6ee
+}
+
+* {
+    box-sizing: border-box
+}
+
+body {
+    margin: 0;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif
+}
+
+.container {
+    width: 100%;
+    max-width: 980px;
+    margin: auto
+}
+
+.card {
+    background: var(--card);
+    border-radius: 22px;
+    padding: 28px;
+    box-shadow: 0 8px 28px rgba(28, 50, 75, .08);
+    margin-bottom: 18px
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--line)
+}
+
+.brand {
+    display: flex;
+    gap: 14px
+}
+
+.brand-icon {
+    font-size: 38px;
+    color: var(--blue)
+}
+
+h1 {
+    font-size: 2rem;
+    margin: 0;
+    color: var(--blue);
+    font-weight: 800
+}
+
+.subtitle {
+    color: #7890ad;
+    margin-top: 7px
+}
+
+.conn, .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 15px;
+    border-radius: 24px;
+    font-weight: 750
+}
+
+.dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: currentColor
+}
+
+.main-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 22px 0;
+    border-bottom: 1px solid var(--line)
+}
+
+.power-title {
+    font-size: 2rem;
+    font-weight: 800
+}
+
+.on {
+    background: var(--greenbg);
+    color: var(--green)
+}
+
+.off {
+    background: var(--redbg);
+    color: var(--red)
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns:1fr 1fr;
+    gap: 14px;
+    margin-top: 20px
+}
+
+.info-item {
+    background: #f7f9fb;
+    border-radius: 15px;
+    padding: 17px;
+    min-height: 100px
+}
+
+.label {
+    display: block;
+    color: var(--muted);
+    font-size: .92rem;
+    margin-bottom: 7px
+}
+
+.value {
+    font-size: 1.18rem;
+    font-weight: 750
+}
+
+.big {
+    font-size: 1.55rem;
+    color: var(--blue)
+}
+
+.controls {
+    margin-top: 22px
+}
+
+.control-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    margin: 14px 0;
+    flex-wrap: wrap
+}
+
+.btn {
+    border: 0;
+    border-radius: 14px;
+    padding: 13px 18px;
+    font-size: 1rem;
+    font-weight: 750;
+    cursor: pointer
+}
+
+.btn-blue {
+    background: var(--blue);
+    color: #fff
+}
+
+.btn-green {
+    background: var(--green);
+    color: #fff
+}
+
+.btn-red {
+    background: var(--red);
+    color: #fff
+}
+
+.btn-light {
+    background: #edf2f7;
+    color: var(--text)
+}
+
+.temp-btn {
+    width: 58px;
+    height: 52px;
+    font-size: 1.5rem
+}
+
+.temp-value {
+    min-width: 110px;
+    text-align: center;
+    font-size: 1.7rem;
+    font-weight: 800
+}
+
+.select {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    font-size: 1rem
+}
+
+.grid2 {
+    display: grid;
+    grid-template-columns:1fr 1fr;
+    gap: 16px
+}
+
+.links {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap
+}
+
+.links a {
+    color: var(--blue);
+    text-decoration: none
+}
+
+.form {
+    max-width: 600px;
+    margin: auto
+}
+
+.field {
+    margin: 14px 0
+}
+
+.field label {
+    display: block;
+    font-weight: 700;
+    margin-bottom: 6px
+}
+
+.field input, .field select {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    font-size: 1rem
+}
+
+.notice {
+    padding: 13px 15px;
+    border-radius: 12px;
+    margin-bottom: 16px
+}
+
+.success {
+    background: var(--greenbg);
+    color: var(--green)
+}
+
+.error {
+    background: var(--redbg);
+    color: var(--red)
+}
+
+.center {
+    text-align: center
+}
+
+.muted {
+    color: var(--muted)
+}
+
+@media (max-width: 650px) {
+    .header {
+        flex-direction: column
+    }
+
+    .info-grid, .grid2 {
+        grid-template-columns:1fr
+    }
+
+    .card {
+        padding: 20px
+    }
+
+    .power-title {
+        font-size: 1.65rem
+    }
+}
+thead th {
+    background: #f2f5f8;
+    color: #536170;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .05em
+}
+
+thead th:first-child {
+    border-radius: 9px 0 0 9px
+}
+
+thead th:last-child {
+    border-radius: 0 9px 9px 0
+}
+
+tbody tr:hover {
+    background: #fafbfd
+}
+
+tbody td:first-child small {
+    display: block;
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 2px
+}
+
+.table-wrap {
+    overflow-x: auto
+}
+
+.schedule-card {
+    border: 1px solid var(--line);
+    border-radius: 13px;
+    overflow: hidden;
+    background: #fff
+}
+
+.schedule-card-head {
+    padding: 13px 15px;
+    background: #f5f7f9;
+    display: flex;
+    justify-content: space-between;
+    align-items: center
+}
+
+.schedule-card-head strong {
+    display: block;
+    font-size: 14px
+}
+
+.schedule-card-head small {
+    display: block;
+    color: var(--muted);
+    margin-top: 3px
+}
+
+.schedule-table, .schedule-table button {
+    font-size: 12px
+}
+
+.schedule-table th, .schedule-table td {
+    text-align: center;
+    padding: 8px 7px
+}
+
+.schedule-table th:first-child {
+    text-align: left
+}
+
+.schedule-table thead th {
+    font-size: 9px
+}
+
+
+
+/* ---------- Compact status page ---------- */
+
+/* Titres de section */
+.section-title h3 {
+    margin: 14px 0 2px;
+    font-size: 1.05rem
+}
+
+/* Lignes "System" et "Heat pump" : plus de marges de <p>, gap réduit */
+.info-grid {
+    gap: 2px 24px;
+    margin-top: 6px
+}
+
+.info-grid p {
+    margin: 0;
+    padding: 3px 0;
+    line-height: 1.35
+}
+
+.info-grid .select {
+    width: auto;
+    padding: 3px 8px;
+    border-radius: 8px;
+    font-size: .9rem
+}
+
+/* La grille des schedules garde un vrai espacement entre les cartes */
+#schedules-body {
+    gap: 14px
+}
+
+/* Tableau des zones */
+.main-status {
+    padding: 6px 0;
+    overflow-x: auto
+}
+
+.schedule-table th, .schedule-table td {
+    padding: 4px 6px
+}
+
+.schedule-table .select {
+    width: auto;
+    padding: 3px 6px;
+    border-radius: 8px;
+    font-size: 12px
+}
+
+.schedule-table .temp-btn {
+    width: auto;
+    height: auto;
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 8px
+}
+
+.inline-form {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0
+}
+
+.inline-form input {
+    width: 64px;
+    padding: 3px 6px;
+    font-size: 12px
+}
+
+/* Cartes de schedules */
+.schedule-card-head {
+    padding: 8px 12px
+}
+
+@media (max-width: 650px) {
+    .info-grid {
+        gap: 0
+    }
+}
+
+/* Plages horaires éditables */
+.time-input {
+    width: 100%;
+    min-width: 66px;
+    padding: 2px 3px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text);
+    text-align: center
+}
+
+.time-input:hover, .time-input:focus {
+    border-color: var(--line);
+    background: #fff
+}
+
+.time-cell {
+    white-space: nowrap
+}
+
+.time-clear {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 3px;
+    cursor: pointer
+}
+
+.time-clear:hover {
+    color: var(--red)
+}
+
+/* Schedules : cartes pleine largeur et repliables */
+#schedules-body {
+    grid-template-columns: 1fr
+}
+
+.schedule-card > summary {
+    cursor: pointer;
+    list-style: none;
+    user-select: none
+}
+
+.schedule-card > summary::-webkit-details-marker {
+    display: none
+}
+
+.schedule-card > summary::before {
+    content: "▾";
+    color: var(--muted);
+    margin-right: 10px;
+    transition: transform .15s
+}
+
+.schedule-card:not([open]) > summary::before {
+    transform: rotate(-90deg)
+}
+
+.schedule-card > summary > div {
+    flex: 1
+}
+
+.schedule-card .table-wrap {
+    overflow-x: auto
+}
+
+.schedule-card .schedule-table {
+    width: 100%;
+    border-collapse: collapse
+}
+
+.time-input {
+    min-width: 58px
+}
+
+.time-clear[hidden] {
+    display: none
+}
+
+/* Consignes confort / eco */
+.global-temps {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    margin: 8px 0 4px;
+    font-size: 13px
+}
+
+.global-temps label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px
+}
+
+.global-temps input, .inline-form input.temp-in {
+    width: 58px;
+    padding: 3px 6px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 12px
+}
+
+.global-temps .btn {
+    padding: 4px 12px;
+    font-size: 12px;
+    border-radius: 8px
+}
+
+.hint {
+    font-size: 12px;
+    margin: 6px 0 0
+}
+
+/* Zone On / Off button: green when on, red when off (colors come from .on / .off) */
+.power-toggle {
+    min-width: 54px;
+    padding: 4px 12px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer
+}
+
+.power-toggle:hover {
+    filter: brightness(0.95)
+}
+
+/* Controls that cannot be used in the current configuration (for example building mode off) */
+button:disabled,
+input:disabled,
+select:disabled {
+    opacity: 0.45;
+    cursor: not-allowed
+}
+
+.power-toggle:disabled:hover {
+    filter: none
+}

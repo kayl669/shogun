@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Shogun setup</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main class="container">
+    <section class="card form"><h1>Shogun setup</h1>
+        <p class="muted">Configure Wi-Fi, MQTT.</p>
+        <form method="POST" action="/config">
+            <div class="field"><label>Wi-Fi SSID</label><input name="wifi-ssid" value="{{WIFI_SSID}}" required></div>
+            <div class="field"><label>Wi-Fi password</label><input name="wifi-pw" value="{{WIFI_PW}}" required></div>
+            <div class="field"><label>MQTT server</label><input name="mqtt-ip" value="{{MQTT_IP}}" required></div>
+            <div class="field"><label>MQTT port</label><input name="mqtt-port" value="{{MQTT_PORT}}" required></div>
+            <div class="field"><label>MQTT user</label><input name="mqtt-user" value="{{MQTT_USER}}"></div>
+            <div class="field"><label>MQTT password</label><input name="mqtt-pw" value="{{MQTT_PW}}"></div>
+            <div class="field"><label>Device name</label><input name="device-name" value="{{DEVICE_NAME}}" required></div>
+            <div class="field"><label>OTA password</label><input name="ota-pw" value="{{OTA_PW}}" required></div>
+
+            <div class="field"><label>Heating electrical power at full load (W)</label><input type="number" name="pwr-heat" min="0" max="20000" step="10" value="{{PWR_HEAT}}"></div>
+            <div class="field"><label>Cooling electrical power at full load (W)</label><input type="number" name="pwr-cool" min="0" max="20000" step="10" value="{{PWR_COOL}}"></div>
+            <button class="btn btn-blue" type="submit">Save configuration</button>
+        </form>
+    </section>
+</main>
+</body>
+</html>

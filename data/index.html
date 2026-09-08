@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Shogun - {{DEVICE_NAME}}</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="container">
+    <section class="card">
+        <header class="header">
+            <div class="brand">
+                <div class="brand-icon">❄</div>
+                <div><h1>Shogun — {{DEVICE_NAME}}</h1>
+                    <div id="subtitle" class="subtitle">Modbus status, zones and controls</div>
+                </div>
+            </div>
+            <div id="connection" class="badge off"><span class="dot"></span>Communication unavailable</div>
+        </header>
+        <div class='section-title'>
+            <h3>System</h3></div>
+        <div class="info-grid">
+            <p><strong>Date/time :</strong> <span id="datetime">-</span></p>
+            <p><strong>Central fault :</strong> <span id="active-fault">-</span></p>
+            <p><strong>Configured zones :</strong> <span id="configured-zones">-</span></p>
+            <p><strong>Building mode :</strong> <select id='building-mode' class="select" onchange='setBuildingMode(this.value)'>
+                <option value='heat'>Heating</option>
+                <option value='cool'>Cooling</option>
+                <option value='dry'>Dehumidification</option>
+                <option value='off'>Off (Frost Protection)</option>
+            </select></p>
+            <p><strong>Automatic heating/cooling changeover :</strong> <select id="auto-changeover" class="select" onchange="setAutoChangeover(this.value)">
+                <option value="off">Off</option>
+                <option value="on">On</option>
+            </select></p>
+            <p><strong>Outdoor temperature :</strong> <span id="outdoor-temp">-</span> °C</p>
+        </div>
+        <div class='section-title'>
+            <h3>Zones</h3>
+        </div>
+        <p id="zones-notice" class="muted hint"></p>
+        <form id="global-temps" class="global-temps" onsubmit="setZoneTemps(event, 'all')">
+            <strong>All zones :</strong>
+            <label>Comfort <input type="number" name="comfort" step="0.5" min="10" max="30" placeholder="--"> °C</label>
+            <label>Eco <input type="number" name="eco" step="0.5" min="10" max="30" placeholder="--"> °C</label>
+            <button type="submit" class="btn btn-light">Apply to all</button>
+        </form>
+        <div class="main-status">
+            <table class='schedule-table'>
+                <thead>
+                <tr>
+                    <th>Zone</th>
+                    <th>Ambient</th>
+                    <th>Active setpoint</th>
+                    <th>Comfort / Eco</th>
+                    <th>Power</th>
+                    <th>Control mode</th>
+                    <th>Schedule</th>
+                </tr>
+                </thead>
+                <tbody id="zones-body"></tbody>
+            </table>
+        </div>
+        <p class="muted hint">Comfort / Eco apply to the schedules and follow the current building mode (heating or cooling values). Leave a field empty in "All zones" to keep it unchanged.</p>
+    </section>
+    <section class="card">
+        <div class='section-title'>
+            <h3>Schedules</h3>
+        </div>
+        <div class="info-grid" id="schedules-body">
+
+        </div>
+    </section>
+    <section class="card">
+        <div class="links"><a href="/">Refresh</a> · <a href="/api/status">API JSON</a> · <a href="/config">⚙️ Network
+            Config</a></div>
+    </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
