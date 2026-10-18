@@ -11,9 +11,10 @@ Everything below is relative to the base topic `shogun/<unique_id>`.
 4. [Home Assistant entities](#home-assistant-entities)
 5. [Global commands](#global-commands)
 6. [Zone commands](#zone-commands)
-7. [Estimated electrical power and energy](#estimated-electrical-power-and-energy)
-8. [Modbus register reference](#modbus-register-reference)
-9. [Web page](#web-page)
+7. [Schedule commands](#schedule-commands)
+8. [Estimated electrical power and energy](#estimated-electrical-power-and-energy)
+9. [Modbus register reference](#modbus-register-reference)
+10. [Web page](#web-page)
 
 ## Topics
 
@@ -29,6 +30,7 @@ Everything below is relative to the base topic `shogun/<unique_id>`.
 | `shogun/<unique_id>/building/auto_changeover` | command | automatic heating/cooling changeover |
 | `shogun/<unique_id>/system/reset_energy` | command | reset the estimated energy counter |
 | `shogun/<unique_id>/zone/<zone>/<command>` | command | zone commands, `<zone>` = 1–8 (configured zones only) |
+| `shogun/<unique_id>/schedule/<program>/<day>` | command | the six time slots of a day, `<program>` = 1–4, `<day>` = `mon` … `sun` |
 
 Zone commands: `setpoint`, `active_setpoint`, `mode`, `comfort`, `eco`, `min_setpoint`, `max_setpoint`,
 `control_mode`, `schedule`, `power`, `sensor_lock`. Command payloads are case-insensitive where they are words.
@@ -46,6 +48,7 @@ All state topics are retained JSON.
 | `state/ui` | `average_ambient_temperature`, `average_setpoint_temperature` (°C), `estimated_power_w`, `estimated_energy_kwh` |
 | `state/schedule_assignments` | array with the program number (1–4) assigned to each configured zone |
 | `state/schedules` | `program_1` … `program_4`, each an array of 42 raw values (7 days × 6 slots, see [schedules](#schedule-time-slots)) |
+| `state/schedule_<program>` | `<program>` = 1–4: `mon` … `sun`, the six times of each day as text, for example `"06:00 09:00 11:30 13:30 17:00 23:00"` (`--:--` = slot not used) |
 | `state/zone_<N>` | see the table below |
 
 `state/zone_<N>` fields:
@@ -92,12 +95,14 @@ Events you can see at the default level (warnings and errors):
 
 | Event | Meaning |
 |---|---|
-| `mqtt_command_rejected` | command refused: payload out of range (10–30 °C) or not valid |
+| `mqtt_command_rejected` | command refused: payload out of range (10–30 °C) or not valid, including a schedule day that is not 6 valid times |
 | `mqtt_setpoint_not_kept` | the Shogun kept another manual setpoint than the requested one (zone limits) |
 | `mqtt_active_setpoint_not_applied` | the active setpoint could not be edited (zone off, other value kept) |
 | `mqtt_setpoint_clamped` | the Shogun kept another Comfort / Eco value (ordering rule) |
 | `mqtt_building_mode_not_applied` | the Shogun did not accept the requested building mode |
 | `mqtt_zone_power_failed` | the zone power register could not be written (Modbus error) |
+| `mqtt_schedule_not_applied` | the Shogun kept other times than the requested ones for a day, or a Modbus error occurred |
+| `homeassistant_discovery_incomplete` | some discovery messages could not be published (`failed_messages`): they are all published again at the next read cycle |
 | `schedule_assignment_mismatch` | the program assigned to a zone is not the one requested |
 | `debug_level_invalid`, `debug_command_unknown` | invalid payload on a debug topic |
 
@@ -107,7 +112,8 @@ Informational (`info`): `debug_level_changed`, `estimated_energy_reset`, `homeas
 ## Home Assistant entities
 
 MQTT Discovery configurations are retained. They are published **once after each boot**, when MQTT is connected and all zone
-names have been read. After renaming a zone or changing the number of zones, reboot the ESP32 to republish them.
+names have been read. If some messages cannot be published, `homeassistant_discovery_incomplete` is reported and the whole discovery is published again at
+the next read cycle, until it is complete. After renaming a zone or changing the number of zones, reboot the ESP32 to republish them.
 Every discovery topic has the form `homeassistant/<component>/<unique_id>/<object_id>/config`, which is the only form Home Assistant accepts.
 All entities use the availability topic and belong to the same Atlantic Shogun device.
 
@@ -155,8 +161,17 @@ The climate entity shows the **active setpoint** (`target`) and its temperature 
 [`setpoint`](#setpoint-manual-setpoint)). Its range is 10–30 °C, step 0.5; the number entities share the same fixed range, whereas the
 Shogun applies its own zone limits (see `min_setpoint` / `max_setpoint`).
 
-Not exposed on purpose: the Modbus slave communication flag (HR 15, switching it off would cut the Modbus link), the
-date/time and vacation dates (HR 21–26, 52–55), and the 168 schedule time slots, which are edited from the web page.
+**Schedules** (state from `state/schedule_<program>`, 28 entities, category *Configuration*)
+
+| Entity | Type | State field | Command |
+|---|---|---|---|
+| `Schedule <program> <day>`, for example `Schedule 1 Monday` | text, 35 characters | `mon` … `sun` | `schedule/<program>/<day>` |
+
+There is one entity per program (1–4) and per day, and its value holds the six switch times of the day. They stay available whatever
+the building mode, since the programs are stored settings. See [schedule commands](#schedule-commands) for the format.
+
+Not exposed on purpose: the Modbus slave communication flag (HR 15, switching it off would cut the Modbus link), and the
+date/time and vacation dates (HR 21–26, 52–55).
 
 ## Global commands
 
@@ -291,6 +306,38 @@ Payload: ON | OFF
 
 Locks or unlocks the zone's sensor (Holding Register `31 + (N − 1)`).
 
+## Schedule commands
+
+```text
+Topic: shogun/<unique_id>/schedule/1/mon
+Payload: 06:00 09:00 11:30 13:30 17:00 23:00
+```
+
+Sets the six time slots of one day of one schedule program (`<program>` 1–4, `<day>` `mon`, `tue`, `wed`, `thu`, `fri`, `sat` or `sun`).
+The payload is **six times separated by spaces**, in the order of the Shogun registers:
+
+| Position | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| Meaning | Comfort 1 | Eco 1 | Comfort 2 | Eco 2 | Comfort 3 | Eco 3 |
+
+Each value is the time **from which** the zone switches to Comfort or to Eco. The example above is the one of the Atlantic documentation:
+Comfort from 06:00, Eco from 09:00, Comfort from 11:30, Eco from 13:30, Comfort from 17:00, Eco from 23:00.
+
+- A time is `HH:MM`; `6:05`, `0605` and `605` are accepted too. `--:--`, `--` and `none` leave a slot **not used**. The six times are separated by spaces or tabs.
+- Anything else is refused and nothing is written: a wrong number of times, an hour above 23, minutes above 59, a program outside 1–4 or an unknown day.
+  A `mqtt_command_rejected` warning gives the reason.
+- Only the slots that change are written. The six registers are then read back with a single request after 200 ms; if the Shogun kept other
+  times, the writes are repeated once for the slots that differ, in case it refused an intermediate state (for example times that were not in
+  ascending order while a day is being replaced). If some are still not kept, `mqtt_schedule_not_applied` gives the times that were kept, and the
+  state is republished with them.
+
+Home Assistant uses this command through the **Schedule `<program>` `<day>`** text entities. The entity accepts exactly what the firmware accepts
+(six times, each `HH:MM`, `H:MM`, `HHMM`, `HMM`, `--:--`, `--` or `none`, separated by spaces) and refuses anything else before it is sent, with a
+length between 17 and 80 characters. The value shown by the entity is always the normalised text, for example `06:30 09:00 11:30 13:30 17:00 --:--`.
+
+If a text typed in Home Assistant seems to have no effect, send it to the topic from the MQTT developer tools and look at `shogun/<unique_id>/debug`:
+a `mqtt_command_rejected` event gives the reason, and `mqtt_schedule_not_applied` shows the times that the Shogun kept.
+
 ## Estimated electrical power and energy
 
 The Shogun gives no electrical measurement and no usable outdoor unit telemetry, so the power is estimated from the zones' demand.
@@ -377,8 +424,10 @@ Comfort and Eco follow the active schedule; Manual is selected when a zone is sw
 ### Schedule time slots
 
 Holding Registers `401 + (program − 1) × 42 + day × 6 + slot`, with `program` 1–4, `day` 0 (Monday) to 6 (Sunday) and
-`slot` 0–5 = Comfort 1, Eco 1, Comfort 2, Eco 2, Comfort 3, Eco 3. Each value is an hour and minute: the high byte holds the minutes,
-the low byte the hours (for example `7691` = `0x1E0B` = 11:30). `65535` (−1) means the slot is not used.
+`slot` 0–5 = Comfort 1, Eco 1, Comfort 2, Eco 2, Comfort 3, Eco 3, each one the time **from which** the zone switches to Comfort or to Eco.
+Each value is an hour and minute: the high byte holds the minutes, the low byte the hours (for example `7691` = `0x1E0B` = 11:30).
+`65535` (−1) means the slot is not used. Example of the Atlantic documentation for registers `401` to `406`: `6`, `9`, `7691`, `7693`, `17`, `23`,
+i.e. 06:00, 09:00, 11:30, 13:30, 17:00, 23:00. The web page edits one slot at a time, MQTT and Home Assistant a whole day (see [schedule commands](#schedule-commands)).
 
 ## Web page
 
@@ -393,7 +442,7 @@ state topics) and sends its commands to `/action`. `/config` is the configuratio
 | Control mode | `control_mode` |
 | Schedule (program of the zone) | `schedule` |
 | Power (single On / Off button, green when on) | `power`: only the power changes, the zone keeps its control mode |
-| Schedules: editable time slots (empty a slot with ×), collapsible per program | [schedule time slots](#schedule-time-slots) |
+| Schedules: every time slot is a text field (type `06:30`, `6:30`, `0630` or `630`, leave it empty if the slot is not used), collapsible per program | [schedule commands](#schedule-commands) (a whole day at a time) |
 
 **Disabled controls.** The page only enables what can be used in the current configuration. With the **building mode off**
 (*Arrêt (Hors-Gel)*, a stand-by where the Shogun only protects the house from frost) or not known yet, the zones are stopped, so the Power

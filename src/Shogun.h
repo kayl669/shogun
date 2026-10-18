@@ -155,6 +155,8 @@ namespace ShogunAC {
         void publishMqttData();
         uint16_t estimateElectricalPower();
         uint8_t writeBuildingMode(uint16_t value, const char *source, String &error);
+        uint8_t writeScheduleTime(uint8_t program, uint8_t day, uint8_t slot, uint16_t value, const char *source, String &error);
+        uint8_t writeScheduleDay(uint8_t program, uint8_t day, const uint16_t *values, const char *source, String &error);
         uint8_t writeZonePower(uint8_t zone, bool turnOn, const char *source, String &error);
         uint8_t writeManualSetpoint(uint8_t zone, float temperature, const char *source, String &error);
         uint8_t writeActiveSetpoint(uint8_t zone, float temperature, const char *source, String &error);

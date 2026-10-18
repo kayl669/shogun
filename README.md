@@ -27,7 +27,7 @@ The ESP32 talks to the Shogun controller through **Modbus RTU over RS485**, serv
 - Detects the number of configured zones (up to 8). For each zone it reads the ambient temperature, the active setpoint, the Comfort, Eco and manual setpoints with their limits, the control mode, the power state, the damper opening, the schedule program and the zone name.
 - Zone control: power on / off, schedule or manual mode, setpoints and schedule program assignment. The sensor lock and the setpoint limits of a zone are available through MQTT.
 - Building control: heating, cooling, dehumidification or off, and the automatic heating / cooling changeover.
-- Editing of the four weekly schedule programs (7 days × 6 time slots).
+- Editing of the four weekly schedule programs (7 days × 6 time slots), from the web dashboard and from Home Assistant.
 - Central fault status (read only).
 - Estimated electrical power and energy (a model, not a measurement).
 
@@ -235,13 +235,15 @@ The dashboard (`/`) shows, and lets you change:
 
 - **System:** date and time, central fault, number of zones, building mode (heating, cooling, dehumidification, off), automatic heating / cooling changeover and outdoor temperature.
 - **Zones:** for every zone, the ambient temperature, the **Active setpoint** (the field changes the setpoint in use: the manual setpoint in manual mode, the Comfort or Eco setpoint in schedule mode, the label under it tells which), the **Comfort / Eco** setpoints, the **Power** button, the **Control mode** (schedule or manual) and the **Schedule** program. The **All zones** form sets Comfort and Eco on every zone.
-- **Schedules:** the four programs, each as a table of 7 days × 6 time slots (Comfort 1, Eco 1, Comfort 2, Eco 2, Comfort 3, Eco 3). A slot is edited in place and emptied with ×.
+- **Schedules:** the four programs, each as a table of 7 days × 6 time slots (Comfort 1, Eco 1, Comfort 2, Eco 2, Comfort 3, Eco 3). Every slot is a text field: type the time (`06:30`, `6:30` or `0630`) and press Enter or leave the field, or empty the field if the slot is not used.
 
 With the building mode off, the Shogun is in stand-by (frost protection only) and the zone controls are disabled. A zone that is off has no editable Active setpoint.
 
 ## Home Assistant and MQTT
 
 With MQTT configured, the device appears in Home Assistant through MQTT Discovery. It creates a thermostat, the temperature, damper and program sensors and the Comfort, Eco, Active setpoint, manual setpoint and limits numbers, the control mode and schedule program selects and the power and sensor lock switches for every zone, plus the building mode, the automatic changeover and the estimated power and energy.
+
+The **schedules** can be edited from Home Assistant too: there is one text entity per program and per day (`Schedule 1 Monday`, 28 in all). Its value holds the six switch times of the day, in the order Comfort 1, Eco 1, Comfort 2, Eco 2, Comfort 3, Eco 3, for example `06:00 09:00 11:30 13:30 17:00 23:00`. Times can be typed as `06:30`, `6:30` or `0630`; write `--:--` (or `none`) for a slot that is not used.
 
 The topics, the payloads, the commands, the debug levels and the Modbus register reference are described in [`MQTT_HOME_ASSISTANT.md`](MQTT_HOME_ASSISTANT.md).
 
@@ -266,6 +268,7 @@ It is meant to give an order of magnitude and to feed the Home Assistant Energy 
 | --- | --- |
 | No zones or no data | Wiring of A+ and B− (swap them), Shogun set to 19200 baud, even parity, 2 stop bits and address 1, cable length and shield. Set the debug level to `trace` and look at the `modbus_response` events: a `result` other than `0x0` is a communication error. |
 | Blank or unstyled dashboard | The filesystem was not uploaded: run `uploadfs`. |
+| Schedule text entities missing or ignored in Home Assistant | Send a day by hand (MQTT developer tools, topic `shogun/<unique_id>/schedule/1/mon`, payload `06:00 09:00 11:30 13:30 17:00 23:00`) with the debug level on `trace` and read `shogun/<unique_id>/debug`: a refused text and the times kept by the Shogun are reported there. |
 | Entities missing in Home Assistant | The MQTT settings, and the broker. Discovery is published once after each boot, when MQTT is connected and all zone names have been read: restart the device after a zone has been renamed. |
 | Login asked on the configuration page | User `admin`, password = OTA password. If it is lost, press the BOOT button to reset the configuration. |
 | Device keeps restarting into the setup network | It cannot join Wi-Fi or reach the MQTT broker within 60 seconds: check the saved settings. |

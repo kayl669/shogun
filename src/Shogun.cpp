@@ -53,6 +53,87 @@ static float demandLoadFromDelta(float deltaT) {
     return 1.00f;
 }
 
+// Schedule time slots. Shogun "Time" coding: high byte = minutes, low byte = hours, 0xFFFF (-1) = slot not used.
+static constexpr uint16_t SCHEDULE_TIME_UNUSED = 0xFFFF;
+static const char *const SCHEDULE_DAYS[7] = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"};
+
+static String twoDigits(uint8_t value) {
+    return (value < 10 ? "0" : "") + String(value);
+}
+
+// "HH:MM" (also H:MM, HHMM, HMM) -> Shogun value. "--:--", "--", "none" and an empty text mean "not used". Returns false for anything else.
+static bool parseScheduleTime(String text, uint16_t &value) {
+    text.trim();
+    text.toLowerCase();
+    if (text.isEmpty() || text == "none" || text == "--" || text == "--:--") {
+        value = SCHEDULE_TIME_UNUSED;
+        return true;
+    }
+    // HH:MM, H:MM, HHMM or HMM
+    const int colon = text.indexOf(':');
+    int hourDigits;
+    if (colon < 0) {
+        if (text.length() < 3 || text.length() > 4) return false;
+        hourDigits = (int) text.length() - 2;
+    } else {
+        if (colon < 1 || colon > 2 || text.length() != (unsigned int) colon + 3) return false;
+        hourDigits = colon;
+    }
+    int digits[4] = {0, 0, 0, 0};
+    int count = 0;
+    for (unsigned int i = 0; i < text.length(); i++) {
+        if ((int) i == colon) continue;
+        const char c = text.charAt(i);
+        if (c < '0' || c > '9') return false;
+        digits[count++] = c - '0';
+    }
+    const int hour = hourDigits == 1 ? digits[0] : digits[0] * 10 + digits[1];
+    const int minute = digits[count - 2] * 10 + digits[count - 1];
+    if (hour > 23 || minute > 59) return false;
+    value = (uint16_t) ((minute << 8) | hour);
+    return true;
+}
+
+static String formatScheduleTime(uint16_t value) {
+    const uint8_t hour = value & 0xFF;
+    const uint8_t minute = value >> 8;
+    if (value == SCHEDULE_TIME_UNUSED || hour > 23 || minute > 59) return "--:--";
+    return twoDigits(hour) + ":" + twoDigits(minute);
+}
+
+// The six times of a day, in the order of the Shogun registers (Comfort 1, Eco 1, Comfort 2, Eco 2, Comfort 3, Eco 3),
+// separated by spaces: "06:00 09:00 11:30 13:30 17:00 23:00". "--:--" is a slot that is not used.
+static String formatScheduleDay(const uint16_t *times) {
+    String text;
+    for (uint8_t i = 0; i < 6; i++) {
+        if (i > 0) text += ' ';
+        text += formatScheduleTime(times[i]);
+    }
+    return text;
+}
+
+static bool parseScheduleDay(String text, uint16_t *values, String &error) {
+    text.trim();
+    text += ' ';
+    uint8_t count = 0;
+    unsigned int start = 0;
+    for (unsigned int i = 0; i < text.length(); i++) {
+        const char c = text.charAt(i);
+        if (c != ' ' && c != '\t' && c != '\r' && c != '\n' && c != '\f' && c != '\v') continue;
+        if (i > start) {
+            if (count >= 6) { error = "More than 6 times"; return false; }
+            if (!parseScheduleTime(text.substring(start, i), values[count])) {
+                error = "Invalid time \"" + text.substring(start, i) + "\", expected HH:MM or --:--";
+                return false;
+            }
+            count++;
+        }
+        start = i + 1;
+    }
+    if (count != 6) { error = "Expected 6 times, got " + String(count); return false; }
+    return true;
+}
+
 static uint16_t getZoneManualSetpointRegister(uint8_t zone, uint16_t buildingState) {
     if (zone < 1 || zone > 8) return 0;
     if (isCoolingBuildingMode(buildingState)) return 172 + (uint16_t)(zone - 1) * 10;
@@ -402,6 +483,67 @@ namespace ShogunAC {
         }
     }
 
+    // Writes one schedule time slot and reads it back.
+    // Returns 0 when the Shogun kept the value, 1 on a Modbus error, 2 when it kept another value (scheduleTimes then
+    // holds the value really kept).
+    uint8_t ShogunAC::writeScheduleTime(uint8_t program, uint8_t day, uint8_t slot, uint16_t value, const char *source, String &error) {
+        if (program < 1 || program > 4 || day > 6 || slot > 5) { error = "Invalid program, day or slot"; return 1; }
+        const uint8_t offset = day * 6 + slot;
+        const uint16_t address = REG_SCHEDULE_BASE + (program - 1) * REG_SCHEDULE_WORDS + offset;
+        const String label = String(source) + "_schedule_time";
+
+        while (Serial1.available()) Serial1.read();
+        uint8_t result = modbusWriteSingle(address, value, label.c_str());
+        if (result != modbus.ku8MBSuccess) { error = "Modbus schedule time write failed"; return 1; }
+
+        delay(200);     // let the controller apply the new time before reading it back
+        result = modbusReadHolding(address, 1, (label + "_verify").c_str());
+        if (result != modbus.ku8MBSuccess) { error = "Schedule time verification failed"; return 1; }
+
+        const uint16_t kept = modbus.getResponseBuffer(0);
+        scheduleTimes[program - 1][offset] = kept;
+        if (kept == value) return 0;
+        error = "Shogun kept " + formatScheduleTime(kept) + " instead of " + formatScheduleTime(value);
+        return 2;
+    }
+
+    // Writes the six time slots of a day (values in register order) and reads them back with a single request. Only the
+    // slots that change are written. A second pass rewrites what the Shogun did not keep, in case it refused an
+    // intermediate state (for example times that are not in ascending order while the day is being replaced).
+    // Returns 0 when every slot is kept, 1 on a Modbus error, 2 when some are not (scheduleTimes holds the real ones).
+    uint8_t ShogunAC::writeScheduleDay(uint8_t program, uint8_t day, const uint16_t *values, const char *source, String &error) {
+        if (program < 1 || program > 4 || day > 6) { error = "Invalid program or day"; return 1; }
+        const uint8_t first = day * 6;
+        const uint16_t base = REG_SCHEDULE_BASE + (program - 1) * REG_SCHEDULE_WORDS + first;
+        uint16_t *times = &scheduleTimes[program - 1][first];
+        const String label = String(source) + "_schedule_day";
+
+        while (Serial1.available()) Serial1.read();
+        bool allKept = false;
+        for (uint8_t pass = 0; pass < 2 && !allKept; ++pass) {
+            for (uint8_t i = 0; i < 6; ++i) {
+                if (times[i] == values[i]) continue;
+                if (modbusWriteSingle(base + i, values[i], label.c_str()) != modbus.ku8MBSuccess) {
+                    error = "Modbus schedule time write failed";
+                    return 1;
+                }
+            }
+            delay(200);
+            if (modbusReadHolding(base, 6, (label + "_verify").c_str()) != modbus.ku8MBSuccess) {
+                error = "Schedule verification failed";
+                return 1;
+            }
+            allKept = true;
+            for (uint8_t i = 0; i < 6; ++i) {
+                times[i] = modbus.getResponseBuffer(i);
+                if (times[i] != values[i]) allKept = false;
+            }
+        }
+        if (allKept) return 0;
+        error = "Shogun kept " + formatScheduleDay(times) + " instead of " + formatScheduleDay(values);
+        return 2;
+    }
+
     // Writes the building state (1 heat, 2 cool, 3 dry, 4 off) and reads it back: the Shogun does not always accept it.
     // With the automatic heating/cooling changeover on, the controller chooses the building state itself.
     // buildingState is always set to the value really kept, so the state published to Home Assistant is the real one.
@@ -691,6 +833,17 @@ namespace ShogunAC {
         }
         publishMqttState("schedules", schedules.toString());
 
+        // The same schedules in a readable form, one topic per program: {"mon": "06:00 09:00 ...", "tue": ...}
+        if (schedulesRead) {
+            for (uint8_t pg = 0; pg < 4; ++pg) {
+                JsonObject days;
+                for (uint8_t day = 0; day < 7; ++day) {
+                    days.str(SCHEDULE_DAYS[day], formatScheduleDay(&scheduleTimes[pg][day * 6]));
+                }
+                publishMqttState("schedule_" + String(pg + 1), days.toString());
+            }
+        }
+
         for (uint8_t i = 0; i < configuredZones && i < MAX_ZONES; i++) {
             const ZoneStatus &z = zones[i];
             String climateMode = "off";
@@ -757,6 +910,7 @@ namespace ShogunAC {
                   .str("default_entity_id", String(component) + "." + deviceName + "_" + slug);
             return e;
         };
+        uint16_t failedMessages = 0;
         auto publish = [&](Entity &e) {
             if (e.conditions.isEmpty()) {
                 e.json.str("availability_topic", availabilityTopic)
@@ -767,7 +921,7 @@ namespace ShogunAC {
                 e.json.raw("availability", e.conditions).str("availability_mode", "all");
             }
             e.json.raw("device", device);
-            _mqttClient.publish(discoveryTopicFor(e.component, e.objectId).c_str(), e.json.toString().c_str(), true);
+            if (!_mqttClient.publish(discoveryTopicFor(e.component, e.objectId).c_str(), e.json.toString().c_str(), true)) failedMessages++;
         };
         // Extra availability conditions: Home Assistant greys an entity out when one of them returns "offline". They follow
         // the web page: with the building mode off (stand-by) or not known yet, the zones are stopped.
@@ -958,16 +1112,47 @@ namespace ShogunAC {
             publish(e);
         }
 
+        // Schedule time slots: one text entity per program and day. Its value holds the six switch times in the order
+        // Comfort 1, Eco 1, Comfort 2, Eco 2, Comfort 3, Eco 3 ("--:--" = slot not used), for example
+        // "06:00 09:00 11:30 13:30 17:00 23:00".
+        static const char *const dayNames[7] = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"};
+        // Typed by hand, so several forms are accepted (06:30, 6:30, 0630, 630, --:--, --, none) with extra spaces. The Shogun
+        // time is always published back as HH:MM, which this pattern accepts too.
+        const String timePattern = "(?:(?:[01]?\\d|2[0-3]):[0-5]\\d|(?:[01]\\d|2[0-3])[0-5]\\d|\\d[0-5]\\d|--:--|--|[Nn][Oo][Nn][Ee])";
+        const String dayPattern = "^\\s*" + timePattern + "(?:\\s+" + timePattern + "){5}\\s*$";
+        for (uint8_t pg = 1; pg <= 4; ++pg) {
+            for (uint8_t day = 0; day < 7; ++day) {
+                e = globalEntity("text", "schedule_" + String(pg) + "_" + SCHEDULE_DAYS[day],
+                                 "Schedule " + String(pg) + " " + dayNames[day]);
+                e.json.str("state_topic", stateTopicFor("schedule_" + String(pg)))
+                      .str("value_template", "{{ value_json." + String(SCHEDULE_DAYS[day]) + " }}")
+                      .str("command_topic", topicFor("schedule/" + String(pg) + "/" + SCHEDULE_DAYS[day]))
+                      .str("mode", "text")
+                      .num("min", 17)
+                      .num("max", 80)
+                      .str("pattern", dayPattern)
+                      .str("entity_category", "config")
+                      .str("icon", "mdi:calendar-clock");
+                publish(e);
+            }
+        }
+
         zoneNamesDiscoveryPublished = namesReady;
         discoveredZoneCount = configuredZones;
         publishMqttDebug("info", JsonObject()
             .str("event", "homeassistant_discovery_published")
             .num("climate_entities", configuredZones)
+            .num("schedule_entities", 28)
+            .num("failed_messages", failedMessages)
             .raw("global_controls", JsonArray().str("building_mode").str("auto_changeover").toString())
             .raw("zone_commands", JsonArray().str("active_setpoint").str("setpoint").str("mode").str("comfort").str("eco")
                 .str("min_setpoint").str("max_setpoint").str("control_mode").str("schedule").str("power").str("sensor_lock").toString())
             .boolean("zone_names_ready", namesReady));
-        discoveryDone=true;
+        if (failedMessages > 0) {
+            publishMqttDebug("warn", JsonObject().str("event", "homeassistant_discovery_incomplete").num("failed_messages", failedMessages)
+                .str("detail", "the discovery is published again at the next read cycle"));
+        }
+        discoveryDone = failedMessages == 0;
     }
 
     void ShogunAC::publishMqttAvailability(const char *status) {
@@ -1065,6 +1250,39 @@ namespace ShogunAC {
             if (valueText != "PRESS" && valueText != "ON" && valueText != "1") return false;
             resetEnergy();
             return true;
+        }
+
+        // schedule/<program>/<day>: the six times of the day, see writeScheduleDay
+        const String schedulePrefix = topicFor("schedule/");
+        if (topic.startsWith(schedulePrefix)) {
+            const String rest = topic.substring(schedulePrefix.length());
+            const int slash = rest.indexOf('/');
+            const int program = slash > 0 ? (int) rest.substring(0, slash).toInt() : 0;
+            String dayName = slash > 0 ? rest.substring(slash + 1) : String("");
+            dayName.toLowerCase();
+            int day = -1;
+            for (int i = 0; i < 7; i++) {
+                if (dayName == SCHEDULE_DAYS[i]) day = i;
+            }
+            uint16_t values[6];
+            String error;
+            if (program < 1 || program > 4 || day < 0) {
+                publishMqttDebug("warn", JsonObject().str("event", "mqtt_command_rejected").str("command", "schedule").str("topic", topic).str("reason", "program 1-4 and day mon-sun expected"));
+                return false;
+            }
+            if (!parseScheduleDay(payload, values, error)) {
+                publishMqttDebug("warn", JsonObject().str("event", "mqtt_command_rejected").num("program", program).str("day", dayName).str("payload", payload).str("reason", error));
+                return false;
+            }
+            const uint8_t result = writeScheduleDay((uint8_t) program, (uint8_t) day, values, "mqtt", error);
+            if (result != 0) {
+                publishMqttDebug("warn", JsonObject().str("event", "mqtt_schedule_not_applied").num("program", program).str("day", dayName).str("detail", error));
+            }
+            if (result == 1) return false;
+            // Always republish so Home Assistant shows the times the Shogun really kept.
+            lastPublish = 0;
+            publishMqttData();
+            return result == 0;
         }
 
         String prefix = topicFor("zone/");
@@ -1581,8 +1799,8 @@ namespace ShogunAC {
                 publishMqttDebugLevel();
 
                 // Commands: every zone command (active_setpoint, setpoint, mode, comfort, eco, min_setpoint, max_setpoint,
-                // control_mode, schedule, power, sensor_lock), building mode, auto changeover, energy reset and debug.
-                for (const char *suffix : {"zone/+/+", "building/mode", "building/auto_changeover", "system/reset_energy",
+                // control_mode, schedule, power, sensor_lock), schedule/<program>/<day>, building mode, auto changeover, energy reset and debug.
+                for (const char *suffix : {"zone/+/+", "schedule/+/+", "building/mode", "building/auto_changeover", "system/reset_energy",
                                            "debug/command", "debug/level/set"}) {
                     _mqttClient.subscribe(topicFor(suffix).c_str());
                 }
@@ -1903,54 +2121,30 @@ namespace ShogunAC {
                 server.send(400, "text/plain", "Missing program, day, slot or time");
                 return;
             }
-            int program = server.arg("program").toInt();
-            int day = server.arg("day").toInt();
-            int slot = server.arg("slot").toInt();
-            String timeArg = server.arg("time");
-            timeArg.trim();
+            const int program = server.arg("program").toInt();
+            const int day = server.arg("day").toInt();
+            const int slot = server.arg("slot").toInt();
             if (program < 1 || program > 4 || day < 0 || day > 6 || slot < 0 || slot > 5) {
                 server.send(400, "text/plain", "Invalid program, day or slot");
                 return;
             }
-
-            uint16_t value = 0xFFFF;
-            if (timeArg.length() > 0 && timeArg != "none") {
-                int colon = timeArg.indexOf(':');
-                if (colon < 1) {
-                    server.send(400, "text/plain", "Invalid time format");
-                    return;
-                }
-                int hour = timeArg.substring(0, colon).toInt();
-                int minute = timeArg.substring(colon + 1).toInt();
-                if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-                    server.send(400, "text/plain", "Invalid time");
-                    return;
-                }
-                // Shogun "Time" coding: high byte = minutes, low byte = hours.
-                value = (uint16_t)((minute << 8) | hour);
-            }
-
-            const uint8_t offset = (uint8_t)(day * 6 + slot);
-            const uint16_t registerAddress = REG_SCHEDULE_BASE + (program - 1) * REG_SCHEDULE_WORDS + offset;
-
-            uint8_t result = modbusWriteSingle(registerAddress, value, "web_schedule_time");
-            if (result != modbus.ku8MBSuccess) {
-                server.send(500, "text/plain", "Modbus schedule time write failed");
+            uint16_t value;
+            if (!parseScheduleTime(server.arg("time"), value)) {
+                server.send(400, "text/plain", "Invalid time");
                 return;
             }
-            result = modbusReadHolding(registerAddress, 1, "web_schedule_time_verify");
-            if (result != modbus.ku8MBSuccess) {
-                server.send(500, "text/plain", "Schedule time verification failed");
+            String error;
+            const uint8_t result = writeScheduleTime((uint8_t) program, (uint8_t) day, (uint8_t) slot, value, "web", error);
+            if (result == 1) {
+                server.send(500, "text/plain", error);
                 return;
             }
-            const uint16_t confirmed = modbus.getResponseBuffer(0);
-            if (confirmed != value) {
-                server.send(409, "text/plain", "Shogun rejected the schedule time");
-                return;
-            }
-            scheduleTimes[program - 1][offset] = confirmed;
             lastPublish = 0;
             publishMqttData();
+            if (result == 2) {
+                server.send(409, "text/plain", error);
+                return;
+            }
             server.send(200, "text/plain", "OK");
             return;
         }
