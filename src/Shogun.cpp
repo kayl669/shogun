@@ -544,6 +544,151 @@ namespace ShogunAC {
         return 2;
     }
 
+    void ShogunAC::publishDump(const JsonObject &json) {
+        _mqttClient.publish(topicFor("debug/dump").c_str(), json.toString().c_str(), false);
+    }
+
+    // The registers as ASCII, two characters per register with the low byte first (how the Shogun stores texts such as names).
+    // Non-printable bytes are shown as '.'.
+    static String registersAsText(const uint16_t *values, uint16_t count) {
+        String text;
+        for (uint16_t i = 0; i < count; ++i) {
+            for (const char c : {(char) (values[i] & 0xFF), (char) (values[i] >> 8)}) {
+                text += (c >= 32 && c <= 126) ? c : '.';
+            }
+        }
+        return text;
+    }
+
+    // Parses "<command> <h|i> <first address> <count>". Returns false (and answers on debug/dump) when it is not valid.
+    static bool parseRegisterRange(String command, uint16_t maxCount, bool &input, uint16_t &first, uint16_t &count) {
+        String parts[4];
+        uint8_t words = 0;
+        command += ' ';
+        unsigned int start = 0;
+        for (unsigned int i = 0; i < command.length(); i++) {
+            if (command.charAt(i) != ' ') continue;
+            if (i > start) {
+                if (words < 4) parts[words] = command.substring(start, i);
+                words++;
+            }
+            start = i + 1;
+        }
+        parts[1].toLowerCase();
+        input = parts[1] == "i";
+        const long firstValue = parts[2].toInt();
+        const long countValue = parts[3].toInt();
+        if (words != 4 || (parts[1] != "h" && !input) || firstValue < 1 || firstValue > 65535 || countValue < 1 ||
+            countValue > maxCount || firstValue + countValue - 1 > 65535) {
+            return false;
+        }
+        first = (uint16_t) firstValue;
+        count = (uint16_t) countValue;
+        return true;
+    }
+
+    // Reads a range of registers and publishes the values on debug/dump, whatever the debug level, together with their ASCII form.
+    // It only reads: it is meant to look for registers that the Shogun documentation does not describe.
+    // Command: "dump <h|i> <first address> <count>" with h = holding registers, i = input registers, 1 to 400 registers,
+    // read 20 at a time. Addresses are the register numbers of the documentation, like everywhere else in this firmware.
+    void ShogunAC::dumpRegisters(String command) {
+        bool input;
+        uint16_t first, total;
+        if (!parseRegisterRange(command, 400, input, first, total)) {
+            // Answered on the dump topic, whatever the debug level: the command was requested explicitly.
+            publishDump(JsonObject().str("error", "invalid dump command").str("payload", command)
+                .str("usage", "dump <h|i> <first address> <count 1-400>"));
+            return;
+        }
+
+        for (uint16_t offset = 0; offset < total; offset += 20) {
+            const uint16_t address = first + offset;
+            const uint16_t quantity = total - offset < 20 ? total - offset : 20;
+            const uint8_t result = input ? modbusReadInput(address, quantity, "dump") : modbusReadHolding(address, quantity, "dump");
+            JsonObject chunk;
+            chunk.str("type", input ? "input" : "holding")
+                 .num("start", address)
+                 .num("count", quantity)
+                 .str("result", "0x" + String(result, HEX))
+                 .str("result_text", modbusResultText(result));
+            if (result == modbus.ku8MBSuccess) {
+                uint16_t values[20];
+                JsonArray list;
+                for (uint16_t i = 0; i < quantity; ++i) {
+                    values[i] = modbus.getResponseBuffer(i);
+                    list.num(values[i]);
+                }
+                chunk.raw("values", list.toString()).str("text", registersAsText(values, quantity));
+            }
+            publishDump(chunk);
+        }
+    }
+
+    // Keeps a copy of a range of registers (1 to 1000) in memory, to find which registers change when a setting is changed on the
+    // Shogun (for example when a schedule program is renamed): see registerChanges. Command: "snapshot <h|i> <first address> <count>".
+    void ShogunAC::snapshotRegisters(String command) {
+        bool input;
+        uint16_t first, total;
+        if (!parseRegisterRange(command, 1000, input, first, total)) {
+            publishDump(JsonObject().str("error", "invalid snapshot command").str("payload", command)
+                .str("usage", "snapshot <h|i> <first address> <count 1-1000>"));
+            return;
+        }
+        snapshotInput = input;
+        snapshotFirst = first;
+        snapshotValues.assign(total, 0);
+        snapshotReadable.assign(total, 0);
+        uint16_t unreadableBlocks = 0;
+        for (uint16_t offset = 0; offset < total; offset += 20) {
+            const uint16_t quantity = total - offset < 20 ? total - offset : 20;
+            const uint16_t address = first + offset;
+            const uint8_t result = input ? modbusReadInput(address, quantity, "snapshot") : modbusReadHolding(address, quantity, "snapshot");
+            if (result != modbus.ku8MBSuccess) { unreadableBlocks++; continue; }
+            for (uint16_t i = 0; i < quantity; ++i) {
+                snapshotValues[offset + i] = modbus.getResponseBuffer(i);
+                snapshotReadable[offset + i] = 1;
+            }
+        }
+        publishDump(JsonObject().str("snapshot", input ? "input" : "holding").num("start", first).num("count", total)
+            .num("unreadable_blocks", unreadableBlocks).str("next", "change a setting on the Shogun, then send: changes"));
+    }
+
+    // Reads the range of the snapshot again and publishes only the registers whose value changed since the snapshot (20 per
+    // message on debug/dump, then a summary). The snapshot itself is kept, so "changes" can be repeated; send "snapshot" to start again.
+    // Registers that change by themselves (date and time, 21 to 26, or measures) are listed too.
+    void ShogunAC::registerChanges() {
+        if (snapshotValues.empty()) {
+            publishDump(JsonObject().str("error", "no snapshot").str("usage", "snapshot <h|i> <first address> <count 1-1000>, then changes"));
+            return;
+        }
+        const uint16_t total = (uint16_t) snapshotValues.size();
+        JsonArray changes;
+        uint16_t changed = 0, inMessage = 0, unreadableBlocks = 0;
+        auto flush = [&]() {
+            if (inMessage == 0) return;
+            publishDump(JsonObject().str("type", snapshotInput ? "input" : "holding").raw("changes", changes.toString()));
+            changes = JsonArray();
+            inMessage = 0;
+        };
+        for (uint16_t offset = 0; offset < total; offset += 20) {
+            const uint16_t quantity = total - offset < 20 ? total - offset : 20;
+            const uint16_t address = snapshotFirst + offset;
+            const uint8_t result = snapshotInput ? modbusReadInput(address, quantity, "changes") : modbusReadHolding(address, quantity, "changes");
+            if (result != modbus.ku8MBSuccess) { unreadableBlocks++; continue; }
+            for (uint16_t i = 0; i < quantity; ++i) {
+                const uint16_t before = snapshotValues[offset + i];
+                const uint16_t after = modbus.getResponseBuffer(i);
+                if (!snapshotReadable[offset + i] || before == after) continue;
+                changes.raw(JsonObject().num("address", address + i).num("before", before).num("after", after)
+                    .str("before_text", registersAsText(&before, 1)).str("after_text", registersAsText(&after, 1)).toString());
+                changed++;
+                if (++inMessage == 20) flush();
+            }
+        }
+        flush();
+        publishDump(JsonObject().num("start", snapshotFirst).num("checked", total).num("changed", changed).num("unreadable_blocks", unreadableBlocks));
+    }
+
     // Writes the building state (1 heat, 2 cool, 3 dry, 4 off) and reads it back: the Shogun does not always accept it.
     // With the automatic heating/cooling changeover on, the controller chooses the building state itself.
     // buildingState is always set to the value really kept, so the state published to Home Assistant is the real one.
@@ -823,17 +968,7 @@ namespace ShogunAC {
         }
         publishMqttState("schedule_assignments", assignments.toString());
 
-        JsonObject schedules;
-        for (uint8_t pg = 0; pg < 4; ++pg) {
-            JsonArray times;
-            for (uint8_t slot = 0; slot < 42; ++slot) {
-                times.num(scheduleTimes[pg][slot]);
-            }
-            schedules.raw("program_" + String(pg + 1), times.toString());
-        }
-        publishMqttState("schedules", schedules.toString());
-
-        // The same schedules in a readable form, one topic per program: {"mon": "06:00 09:00 ...", "tue": ...}
+        // The schedules, one topic per program: {"mon": "06:00 09:00 ...", "tue": ...}
         if (schedulesRead) {
             for (uint8_t pg = 0; pg < 4; ++pg) {
                 JsonObject days;
@@ -1123,7 +1258,7 @@ namespace ShogunAC {
         for (uint8_t pg = 1; pg <= 4; ++pg) {
             for (uint8_t day = 0; day < 7; ++day) {
                 e = globalEntity("text", "schedule_" + String(pg) + "_" + SCHEDULE_DAYS[day],
-                                 "Schedule " + String(pg) + " " + dayNames[day]);
+                                 "Schedule " + String(pg) + " " +  String(day + 1) + " - " + dayNames[day]);
                 e.json.str("state_topic", stateTopicFor("schedule_" + String(pg)))
                       .str("value_template", "{{ value_json." + String(SCHEDULE_DAYS[day]) + " }}")
                       .str("command_topic", topicFor("schedule/" + String(pg) + "/" + SCHEDULE_DAYS[day]))
@@ -1192,8 +1327,17 @@ namespace ShogunAC {
 
         String debugTopic = topicFor("debug/command");
         if (topicString == debugTopic) {
-            if (payloadString == "level") {
+            String debugCommand = payloadString;
+            debugCommand.trim();
+            debugCommand.toLowerCase();
+            if (debugCommand == "level") {
                 publishMqttDebugLevel();
+            } else if (debugCommand.startsWith("dump")) {
+                dumpRegisters(debugCommand);
+            } else if (debugCommand.startsWith("snapshot")) {
+                snapshotRegisters(debugCommand);
+            } else if (debugCommand == "changes") {
+                registerChanges();
             } else {
                 publishMqttDebug("warn", JsonObject().str("event", "debug_command_unknown").str("payload", payloadString));
             }

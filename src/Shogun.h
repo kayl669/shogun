@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <vector>
 
 //WiFi
 #include <WiFi.h>
@@ -75,6 +76,12 @@ namespace ShogunAC {
         uint16_t activeFault = 0;
         uint16_t configuredZones = 0;
 
+        // Register snapshot of the diagnostic commands (see snapshotRegisters)
+        std::vector<uint16_t> snapshotValues;
+        std::vector<uint8_t> snapshotReadable;
+        bool snapshotInput = false;
+        uint16_t snapshotFirst = 0;
+
         // Estimated energy (integral of the estimated power), persisted in flash
         double energyKwh = 0.0;
         uint32_t lastEnergySample = 0;
@@ -117,6 +124,10 @@ namespace ShogunAC {
         void publishMqttAvailability(const char *status);
         void publishMqttDebug(const char *level, const JsonObject &event);
         void traceModbusResponse(JsonObject &event, uint8_t result, uint32_t elapsedMs, uint16_t valueCount);
+        void dumpRegisters(String command);
+        void snapshotRegisters(String command);
+        void registerChanges();
+        void publishDump(const JsonObject &json);
 
         // Topics: shogun/<unique_id>/<suffix>, shogun/<unique_id>/state/<section>
         // and homeassistant/<component>/<unique_id>/<object_id>/config
