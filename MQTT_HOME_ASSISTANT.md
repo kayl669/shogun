@@ -25,8 +25,7 @@ Everything below is relative to the base topic `shogun/<unique_id>`.
 | `shogun/<unique_id>/debug` | published, not retained | JSON debug messages |
 | `shogun/<unique_id>/debug/level` | published, retained | current debug level |
 | `shogun/<unique_id>/debug/level/set` | command | set the debug level |
-| `shogun/<unique_id>/debug/command` | command | `level` republishes the debug level; `dump`, `snapshot` and `changes` read registers |
-| `shogun/<unique_id>/debug/dump` | published, not retained | answers of the `dump` command |
+| `shogun/<unique_id>/debug/command` | command | `level` republishes the debug level |
 | `shogun/<unique_id>/building/mode` | command | building mode |
 | `shogun/<unique_id>/building/auto_changeover` | command | automatic heating/cooling changeover |
 | `shogun/<unique_id>/system/reset_energy` | command | reset the estimated energy counter |
@@ -88,55 +87,8 @@ Set the level with `shogun/<unique_id>/debug/level/set`; the current level is pu
 | `info` | `info` or `2` | + informational events |
 | `trace` | `trace` or `3` | + every Modbus request and response |
 
-`debug/command` accepts `level` (republish the level) and the register commands `dump`, `snapshot` and `changes` (see below). Any other payload gives a
+The only command accepted on `debug/command` is `level` (republish the level). Any other payload gives a
 `debug_command_unknown` warning.
-
-### Reading registers (`dump`)
-
-```text
-Topic: shogun/<unique_id>/debug/command
-Payload: dump h 569 31        (h = holding registers, i = input registers, first address, count)
-```
-
-The command only **reads**: it never writes a register. It reads 1 to 400 registers, 20 at a time, and publishes one message per block on
-`shogun/<unique_id>/debug/dump`, whatever the debug level:
-
-```json
-{"type":"holding","start":620,"count":20,"result":"0x0","result_text":"success","values":[28506,25966,12576,0,...],"text":"Zone 1......"}
-```
-
-`values` holds the raw registers and `text` their ASCII form, two characters per register with the low byte first, which is how the Shogun stores
-names (`28506` = `0x6F5A` = "Zo"); non-printable bytes are shown as `.`. A block that the Shogun refuses (a register that does not exist) is
-reported with `"result":"0x2"` (`illegal_data_address`) and the other blocks are still read. Addresses are the register numbers of the documentation.
-A wrong command is answered with an `error` message on the same topic.
-
-### Finding which registers a setting uses (`snapshot` and `changes`)
-
-```text
-snapshot h 1 1000      keeps a copy of 1000 holding registers (h) or input registers (i), 1 to 1000 registers
-changes                reads them again and lists only the registers that changed since the snapshot
-```
-
-Both only read. `changes` publishes on `shogun/<unique_id>/debug/dump` the changed registers, 20 per message, then a summary:
-
-```json
-{"type":"holding","changes":[{"address":589,"before":0,"after":21072,"before_text":"..","after_text":"PR"}, ...]}
-{"start":560,"checked":120,"changed":6,"unreadable_blocks":0}
-```
-
-The snapshot is kept, so `changes` can be sent again (after a second change, for example); send `snapshot` again to start from the current values. Blocks that the
-Shogun refuses at the time of the snapshot are counted in `unreadable_blocks` and skipped. Registers that change by themselves (date and time, 21 to 26, measures
-in the input registers) are listed too: ignore them.
-
-**Looking for a register that the documentation does not describe**, for example the name of a schedule program:
-
-1. Send `snapshot h 1 1000`, then `snapshot` again with `i` if needed (one snapshot is kept at a time, so do each type in turn).
-2. On the Shogun, give the program a recognisable name, for example `PROGTEST1`.
-3. Send `changes`: the registers that hold the name are listed with their text in `after_text` (two characters per register: `PR`, `OG`, `TE`, `ST`, `1.`).
-4. Rename the program to `PROGTEST2` and send `changes` again to confirm that the same registers change.
-5. Read them with `dump h <first> <count>` to see the whole text.
-
-Only read registers that you have found this way: do not write to a register that the documentation does not describe.
 
 Events you can see at the default level (warnings and errors):
 

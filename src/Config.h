@@ -7,7 +7,6 @@ namespace ShogunAC {
     class Config {
     	public:
     		Config(
-                const char *version,
                 int rxPin,
                 int txPin,
                 int resetButtonPin
@@ -24,9 +23,7 @@ namespace ShogunAC {
 
     		void setValue(const char* key, String value);
 
-    		const char* getVersion() { return _version; }
 
-            void setWifiSleepEnabled(bool status);
             bool isWifiSleepEnabled();
 
             uint8_t getMqttDebugLevel() const { return _mqttDebugLevel; }
@@ -51,7 +48,6 @@ namespace ShogunAC {
             Preferences _preferences;
 
             String _uniqueId;
-            const char *_version;
 
             int _rxPin;
             int _txPin;

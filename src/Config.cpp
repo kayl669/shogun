@@ -2,13 +2,11 @@
 
 namespace ShogunAC {
     Config::Config(
-        const char *version,
         int rxPin,
         int txPin,
         int resetButtonPin
     ):
     	_preferences(),
-    	_version(version),
         _rxPin(rxPin),
         _txPin(txPin),
         _resetButtonPin(resetButtonPin)
@@ -78,16 +76,6 @@ namespace ShogunAC {
         if (_resetButtonPin > 0) {
             pinMode(_resetButtonPin, INPUT_PULLUP);
         }
-    }
-
-    void Config::setWifiSleepEnabled(bool status)
-    {
-        if (_wifiSleepEnabled != status) {
-            _wifiSleepEnabled = status;
-            _preferences.putBool("wifi-sleep", status);
-        }
-
-        WiFi.setSleep(status);
     }
 
     bool Config::isWifiSleepEnabled() {

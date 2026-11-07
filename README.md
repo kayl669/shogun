@@ -247,7 +247,7 @@ The **schedules** can be edited from Home Assistant too: there is one text entit
 
 The topics, the payloads, the commands, the debug levels and the Modbus register reference are described in [`MQTT_HOME_ASSISTANT.md`](MQTT_HOME_ASSISTANT.md).
 
-For troubleshooting, the debug topic `shogun/<unique_id>/debug` can show every Modbus request and response: send `trace` to `shogun/<unique_id>/debug/level/set`. The default level only reports errors and warnings. The commands `dump <h|i> <first> <count>`, `snapshot <h|i> <first> <count>` and `changes` sent to `shogun/<unique_id>/debug/command` read registers (read only) and publish them on `shogun/<unique_id>/debug/dump`: `dump` shows a range, `snapshot` then `changes` list the registers that changed after you change a setting on the Shogun. They help to find registers that the Atlantic documentation does not describe.
+For troubleshooting, the debug topic `shogun/<unique_id>/debug` can show every Modbus request and response: send `trace` to `shogun/<unique_id>/debug/level/set`. The default level only reports errors and warnings.
 
 ## Estimated power and energy
 

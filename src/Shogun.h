@@ -1,6 +1,5 @@
 #pragma once
 #include <Arduino.h>
-#include <vector>
 
 //WiFi
 #include <WiFi.h>
@@ -37,7 +36,6 @@ namespace ShogunAC {
         uint16_t programStatus = 0;
         uint16_t heatingState = 0;
         uint16_t controlMode = 0;
-        uint16_t scheduleProgram = 0;
         String name = "";
     };
 
@@ -64,7 +62,6 @@ namespace ShogunAC {
         PubSubClient _mqttClient;
 
         uint32_t fallbackApCreatedAt = 0;
-        bool webOtaAuthorized = false;
         bool littleFsReady = false;
         bool discoveryDone = false;
 
@@ -75,12 +72,6 @@ namespace ShogunAC {
 
         uint16_t activeFault = 0;
         uint16_t configuredZones = 0;
-
-        // Register snapshot of the diagnostic commands (see snapshotRegisters)
-        std::vector<uint16_t> snapshotValues;
-        std::vector<uint8_t> snapshotReadable;
-        bool snapshotInput = false;
-        uint16_t snapshotFirst = 0;
 
         // Estimated energy (integral of the estimated power), persisted in flash
         double energyKwh = 0.0;
@@ -98,8 +89,6 @@ namespace ShogunAC {
         int currentZoneIndex = 0;
         bool currentCycleSuccess = true;
         unsigned long lastPublish = 0;
-        bool zoneNamesDiscoveryPublished = false;
-        uint8_t discoveredZoneCount = 0;
 
         // Four heating schedules, 7 days x 3 Comfort/Eco pairs = 42 Time registers each.
         uint16_t scheduleAssignments[MAX_ZONES] = {};
@@ -124,10 +113,6 @@ namespace ShogunAC {
         void publishMqttAvailability(const char *status);
         void publishMqttDebug(const char *level, const JsonObject &event);
         void traceModbusResponse(JsonObject &event, uint8_t result, uint32_t elapsedMs, uint16_t valueCount);
-        void dumpRegisters(String command);
-        void snapshotRegisters(String command);
-        void registerChanges();
-        void publishDump(const JsonObject &json);
 
         // Topics: shogun/<unique_id>/<suffix>, shogun/<unique_id>/state/<section>
         // and homeassistant/<component>/<unique_id>/<object_id>/config
@@ -151,9 +136,6 @@ namespace ShogunAC {
         static ShogunAC *_mqttInstance;
 
         String getBuildingModeText(uint16_t mode) const;
-        String getProgramText(uint16_t status);
-        String getModeText(uint16_t mode);
-        String getFanText(uint16_t fan);
         String loadResource(const char *path);
         void sendResource(const char *path, const char *contentType);
         String htmlEscape(const String &value);

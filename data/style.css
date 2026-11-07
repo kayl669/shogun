@@ -68,7 +68,7 @@ h1 {
     margin-top: 7px
 }
 
-.conn, .badge {
+.badge {
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -93,11 +93,6 @@ h1 {
     border-bottom: 1px solid var(--line)
 }
 
-.power-title {
-    font-size: 2rem;
-    font-weight: 800
-}
-
 .on {
     background: var(--greenbg);
     color: var(--green)
@@ -115,43 +110,6 @@ h1 {
     margin-top: 20px
 }
 
-.info-item {
-    background: #f7f9fb;
-    border-radius: 15px;
-    padding: 17px;
-    min-height: 100px
-}
-
-.label {
-    display: block;
-    color: var(--muted);
-    font-size: .92rem;
-    margin-bottom: 7px
-}
-
-.value {
-    font-size: 1.18rem;
-    font-weight: 750
-}
-
-.big {
-    font-size: 1.55rem;
-    color: var(--blue)
-}
-
-.controls {
-    margin-top: 22px
-}
-
-.control-row {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    justify-content: center;
-    margin: 14px 0;
-    flex-wrap: wrap
-}
-
 .btn {
     border: 0;
     border-radius: 14px;
@@ -163,16 +121,6 @@ h1 {
 
 .btn-blue {
     background: var(--blue);
-    color: #fff
-}
-
-.btn-green {
-    background: var(--green);
-    color: #fff
-}
-
-.btn-red {
-    background: var(--red);
     color: #fff
 }
 
@@ -203,12 +151,6 @@ h1 {
     font-size: 1rem
 }
 
-.grid2 {
-    display: grid;
-    grid-template-columns:1fr 1fr;
-    gap: 16px
-}
-
 .links {
     display: flex;
     gap: 12px;
@@ -236,7 +178,8 @@ h1 {
     margin-bottom: 6px
 }
 
-.field input, .field select {
+.field input,
+.field select {
     width: 100%;
     padding: 12px;
     border: 1px solid var(--line);
@@ -255,11 +198,6 @@ h1 {
     color: var(--green)
 }
 
-.error {
-    background: var(--redbg);
-    color: var(--red)
-}
-
 .center {
     text-align: center
 }
@@ -273,18 +211,15 @@ h1 {
         flex-direction: column
     }
 
-    .info-grid, .grid2 {
+    .info-grid {
         grid-template-columns:1fr
     }
 
     .card {
         padding: 20px
     }
-
-    .power-title {
-        font-size: 1.65rem
-    }
 }
+
 thead th {
     background: #f2f5f8;
     color: #536170;
@@ -342,11 +277,13 @@ tbody td:first-child small {
     margin-top: 3px
 }
 
-.schedule-table, .schedule-table button {
+.schedule-table,
+.schedule-table button {
     font-size: 12px
 }
 
-.schedule-table th, .schedule-table td {
+.schedule-table th,
+.schedule-table td {
     text-align: center;
     padding: 8px 7px
 }
@@ -358,8 +295,6 @@ tbody td:first-child small {
 .schedule-table thead th {
     font-size: 9px
 }
-
-
 
 /* ---------- Compact status page ---------- */
 
@@ -399,7 +334,8 @@ tbody td:first-child small {
     overflow-x: auto
 }
 
-.schedule-table th, .schedule-table td {
+.schedule-table th,
+.schedule-table td {
     padding: 4px 6px
 }
 
@@ -442,41 +378,33 @@ tbody td:first-child small {
     }
 }
 
-/* Plages horaires éditables */
+/* Plages horaires éditables (champ texte HH:MM) */
 .time-input {
     width: 100%;
-    min-width: 66px;
+    min-width: 58px;
     padding: 2px 3px;
     border: 1px solid transparent;
     border-radius: 6px;
     background: transparent;
     font: inherit;
     font-size: 12px;
+    font-variant-numeric: tabular-nums;
     color: var(--text);
     text-align: center
 }
 
-.time-input:hover, .time-input:focus {
+.time-input:hover,
+.time-input:focus {
     border-color: var(--line);
     background: #fff
 }
 
+.time-input::placeholder {
+    color: var(--muted)
+}
+
 .time-cell {
     white-space: nowrap
-}
-
-.time-clear {
-    border: 0;
-    background: transparent;
-    color: var(--muted);
-    font-size: 13px;
-    line-height: 1;
-    padding: 0 3px;
-    cursor: pointer
-}
-
-.time-clear:hover {
-    color: var(--red)
 }
 
 /* Schedules : cartes pleine largeur et repliables */
@@ -518,14 +446,6 @@ tbody td:first-child small {
     border-collapse: collapse
 }
 
-.time-input {
-    min-width: 58px
-}
-
-.time-clear[hidden] {
-    display: none
-}
-
 /* Consignes confort / eco */
 .global-temps {
     display: flex;
@@ -542,7 +462,8 @@ tbody td:first-child small {
     gap: 4px
 }
 
-.global-temps input, .inline-form input.temp-in {
+.global-temps input,
+.inline-form input.temp-in {
     width: 58px;
     padding: 3px 6px;
     border: 1px solid var(--line);

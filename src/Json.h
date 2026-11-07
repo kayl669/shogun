@@ -100,13 +100,6 @@ public:
         return *this;
     }
 
-    // 21.5 with a fixed number of decimals
-    JsonArray &num(double value, uint8_t decimals) {
-        separator();
-        _body += String(value, (unsigned int) decimals);
-        return *this;
-    }
-
     // Inserted as is (nested object or array already serialised)
     JsonArray &raw(const String &json) {
         separator();
@@ -114,7 +107,6 @@ public:
         return *this;
     }
 
-    void reserve(unsigned int size) { _body.reserve(size); }
     String toString() const { return "[" + _body + "]"; }
 
 private:
