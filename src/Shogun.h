@@ -96,6 +96,12 @@ namespace ShogunAC {
         uint8_t scheduleReadIndex = 0;
         bool schedulesRead = false;
 
+        // Raw outdoor unit registers, -1 when not answered
+        static constexpr uint8_t OUTDOOR_UNIT_VALUES = 10;
+        int32_t outdoorUnit[OUTDOOR_UNIT_VALUES] = {};
+        uint8_t outdoorReadIndex = 0;
+        bool outdoorUnitRead = false;
+
         String getConfigValue(String qs, String key);
         String urlDecode(const String &s);
         void parseConfig(String content);
@@ -112,7 +118,7 @@ namespace ShogunAC {
         void setupMqttDiscovery();
         void publishMqttAvailability(const char *status);
         void publishMqttDebug(const char *level, const JsonObject &event);
-        void traceModbusResponse(JsonObject &event, uint8_t result, uint32_t elapsedMs, uint16_t valueCount);
+        void traceModbusResponse(JsonObject &event, uint8_t result, uint32_t elapsedMs, uint16_t valueCount, bool optional = false);
 
         // Topics: shogun/<unique_id>/<suffix>, shogun/<unique_id>/state/<section>
         // and homeassistant/<component>/<unique_id>/<object_id>/config
@@ -124,7 +130,8 @@ namespace ShogunAC {
         const char *mqttDebugLevelName(uint8_t level) const;
         bool setMqttDebugLevelFromPayload(const String &payload);
         const char *modbusResultText(uint8_t result) const;
-        uint8_t modbusReadInput(uint16_t address, uint16_t quantity, const char *label);
+        // optional: a register that may not exist, its failure is only reported at the trace debug level
+        uint8_t modbusReadInput(uint16_t address, uint16_t quantity, const char *label, bool optional = false);
         uint8_t modbusReadHolding(uint16_t address, uint16_t quantity, const char *label);
         uint8_t modbusWriteSingle(uint16_t address, uint16_t value, const char *label);
         void mqttCommandCallback(char *topic, byte *payload, unsigned int length);

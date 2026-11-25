@@ -24,6 +24,20 @@ uint8_t currentModbusSlave = SHOGUN_ID;
 #define REG_SCHEDULE_BASE 401
 #define REG_SCHEDULE_WORDS 42
 
+// Outdoor unit input registers (power preset and registers 280 to 288), only published on MQTT to find out which ones the
+// installation fills in. One request per entry: a refused register does not hide the others. 283-284 is one 32 bit value.
+struct OutdoorUnitRead {
+    uint16_t address;
+    uint8_t quantity;
+    uint8_t first;      // position of its first value in outdoorUnit / OUTDOOR_UNIT_KEYS
+};
+static constexpr OutdoorUnitRead OUTDOOR_UNIT_READS[] = {
+    {260, 1, 0}, {280, 1, 1}, {281, 1, 2}, {282, 1, 3}, {283, 2, 4}, {285, 1, 6}, {286, 1, 7}, {287, 1, 8}, {288, 1, 9}};
+static constexpr uint8_t OUTDOOR_UNIT_READ_COUNT = sizeof(OUTDOOR_UNIT_READS) / sizeof(OUTDOOR_UNIT_READS[0]);
+static const char *const OUTDOOR_UNIT_KEYS[] = {
+    "power_preset_260", "on_off_280", "defrost_281", "compressor_modulation_282", "compressor_runtime_283",
+    "compressor_runtime_284", "register_285", "mode_286", "fault_code_287", "status_288"};
+
 static bool isCoolingBuildingMode(uint16_t buildingState) {
     return buildingState == 2;
 }
@@ -35,20 +49,21 @@ static constexpr uint16_t ELECTRICAL_STANDBY_W = 10;
 // proportional to the indoor / outdoor temperature difference, so the steady load is 0 at the indoor temperature and 1 here.
 static constexpr float DESIGN_OUTDOOR_HEATING_C = -7.0f;
 static constexpr float DESIGN_OUTDOOR_COOLING_C = 35.0f;
-// A zone this far beyond its target (above in heating, below in cooling) no longer asks for anything.
-static constexpr float SATISFIED_MARGIN_K = 0.5f;
+// A zone this far beyond its target (above in heating, below in cooling) no longer asks for anything. In tenths of a
+// degree, the resolution of the Shogun: differences between floating point temperatures miss the exact thresholds.
+static constexpr int SATISFIED_MARGIN_TENTHS = 5;
 
 // Load curve used for the transient demand (recovery after a setback or a setpoint change), same curve as FujitsuAC:
 // 0.5 K dead band, then steps from 20 to 100 percent of the rated input power.
-static float demandLoadFromDelta(float deltaT) {
-    constexpr float DEAD_BAND = 0.5f;
-    if (deltaT <= DEAD_BAND) return 0.0f;
-    const float effectiveDelta = deltaT - DEAD_BAND;
-    if (effectiveDelta <= 0.5f) return 0.20f;
-    if (effectiveDelta <= 1.0f) return 0.30f;
-    if (effectiveDelta <= 2.0f) return 0.45f;
-    if (effectiveDelta <= 3.0f) return 0.65f;
-    if (effectiveDelta <= 4.0f) return 0.82f;
+static float demandLoadFromDelta(int deltaTenths) {
+    constexpr int DEAD_BAND_TENTHS = 5;
+    if (deltaTenths <= DEAD_BAND_TENTHS) return 0.0f;
+    const int effectiveTenths = deltaTenths - DEAD_BAND_TENTHS;
+    if (effectiveTenths <= 5) return 0.20f;
+    if (effectiveTenths <= 10) return 0.30f;
+    if (effectiveTenths <= 20) return 0.45f;
+    if (effectiveTenths <= 30) return 0.65f;
+    if (effectiveTenths <= 40) return 0.82f;
     return 1.00f;
 }
 
@@ -423,8 +438,23 @@ namespace ShogunAC {
                     } else {
                         currentCycleSuccess = false;
                     }
-                    modbusState = 11;
+                    outdoorReadIndex = 0;
+                    modbusState = 8;
                     break;
+                case 8: // Outdoor unit [Input Reg], one request per pass. Optional: a failure does not fail the read cycle.
+                {
+                    const OutdoorUnitRead &read = OUTDOOR_UNIT_READS[outdoorReadIndex];
+                    result = modbusReadInput(read.address, read.quantity, "outdoor_unit", true);
+                    for (uint8_t i = 0; i < read.quantity; ++i) {
+                        outdoorUnit[read.first + i] = result == modbus.ku8MBSuccess ? (int32_t) modbus.getResponseBuffer(i) : -1;
+                    }
+                    outdoorReadIndex++;
+                    if (outdoorReadIndex >= OUTDOOR_UNIT_READ_COUNT) {
+                        outdoorUnitRead = true;
+                        modbusState = 11;
+                    }
+                    break;
+                }
                 case 11:
                     //  outdoor temperature [Input Reg]
                     result = modbusReadInput(REG_CURRENT_OUTDOOR_TEMP, 1, "current_outdoor_temp");
@@ -680,12 +710,13 @@ namespace ShogunAC {
             if (z.programStatus == 3) continue;                                  // zone switched off
             if (z.ambientTemp < 0.0f || z.ambientTemp > 60.0f) continue;         // sensor missing / invalid
             if (z.targetTemp <= 0.0f || z.targetTemp > 40.0f) continue;          // no valid target yet
-            const float deltaT = heating ? (z.targetTemp - z.ambientTemp) : (z.ambientTemp - z.targetTemp);
-            if (deltaT >= -SATISFIED_MARGIN_K) {
+            const int gapTenths = (int) (lroundf(z.targetTemp * 10.0f) - lroundf(z.ambientTemp * 10.0f));
+            const int deltaTenths = heating ? gapTenths : -gapTenths;     // positive: the zone still has to be heated / cooled
+            if (deltaTenths >= -SATISFIED_MARGIN_TENTHS) {
                 askingZones++;
                 askingTargetSum += z.targetTemp;
             }
-            const float load = demandLoadFromDelta(deltaT);
+            const float load = demandLoadFromDelta(deltaTenths);
             if (load > 0.0f) {
                 callingZones++;
                 if (load > maxLoad) maxLoad = load;
@@ -796,6 +827,16 @@ namespace ShogunAC {
             assignments.num(scheduleAssignments[i]);
         }
         publishMqttState("schedule_assignments", assignments.toString());
+
+        // Raw values of the outdoor unit registers, null when the Shogun does not answer one
+        if (outdoorUnitRead) {
+            JsonObject unit;
+            for (uint8_t i = 0; i < OUTDOOR_UNIT_VALUES; ++i) {
+                if (outdoorUnit[i] < 0) unit.raw(OUTDOOR_UNIT_KEYS[i], "null");
+                else unit.num(OUTDOOR_UNIT_KEYS[i], outdoorUnit[i]);
+            }
+            publishMqttState("outdoor_unit", unit.toString());
+        }
 
         // The schedules, one topic per program: {"mon": "06:00 09:00 ...", "tue": ...}
         if (schedulesRead) {
@@ -1516,7 +1557,7 @@ namespace ShogunAC {
     }
 
     // Completes and publishes the response event of a Modbus request (the register values are listed for reads).
-    void ShogunAC::traceModbusResponse(JsonObject &event, uint8_t result, uint32_t elapsedMs, uint16_t valueCount) {
+    void ShogunAC::traceModbusResponse(JsonObject &event, uint8_t result, uint32_t elapsedMs, uint16_t valueCount, bool optional) {
         event.num("slave", currentModbusSlave)
              .str("result", "0x" + String(result, HEX))
              .str("result_text", modbusResultText(result))
@@ -1528,17 +1569,17 @@ namespace ShogunAC {
             }
             event.raw("values", values.toString());
         }
-        publishMqttDebug(result == modbus.ku8MBSuccess ? "trace" : "error", event);
+        publishMqttDebug(result == modbus.ku8MBSuccess || optional ? "trace" : "error", event);
     }
 
-    uint8_t ShogunAC::modbusReadInput(uint16_t address, uint16_t quantity, const char *label) {
+    uint8_t ShogunAC::modbusReadInput(uint16_t address, uint16_t quantity, const char *label, bool optional) {
         publishMqttDebug("trace", modbusEvent("modbus_request", 4, "input", label, address).num("quantity", quantity));
         uint32_t start = millis();
         uint8_t result = modbus.readInputRegisters(address - 1, quantity);
         uint32_t elapsed = millis() - start;
         JsonObject response = modbusEvent("modbus_response", 4, "input", label, address);
         response.num("quantity", quantity);
-        traceModbusResponse(response, result, elapsed, quantity);
+        traceModbusResponse(response, result, elapsed, quantity, optional);
         return result;
     }
 

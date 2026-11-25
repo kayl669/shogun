@@ -46,6 +46,7 @@ All state topics are retained JSON.
 |---|---|
 | `state/system` | `central_fault` (active fault code, 0 = none), `detected_zone_count`, `outdoor_temperature` (°C), `building_state` (number), `building_mode` (`heat`, `cool`, `dry`, `off`, `unknown`), `auto_changeover` (`"on"` / `"off"`) |
 | `state/ui` | `average_ambient_temperature`, `average_setpoint_temperature` (°C), `estimated_power_w`, `estimated_energy_kwh` |
+| `state/outdoor_unit` | raw outdoor unit registers, see [outdoor unit registers](#outdoor-unit-registers) |
 | `state/schedule_assignments` | array with the program number (1–4) assigned to each configured zone |
 | `state/schedule_<program>` | `<program>` = 1–4: `mon` … `sun`, the six times of each day as text in the order Comfort 1, Eco 1, Comfort 2, Eco 2, Comfort 3, Eco 3, for example `"06:00 09:00 11:30 13:30 17:00 23:00"` (`--:--` = slot not used). Published once the four programs have been read. |
 | `state/zone_<N>` | see the table below |
@@ -380,6 +381,25 @@ more and multiply both nominal powers by the ratio measured / estimated.
   survives reboots and firmware updates.
 - The Home Assistant sensor has `device_class: energy` and `state_class: total_increasing`, so it can be added to the Energy dashboard.
   The **Reset estimated energy** button sets it back to 0.
+
+## Outdoor unit registers
+
+`state/outdoor_unit` gives the raw values of input registers of the outdoor unit, read at each cycle. They are only published, to find
+out which ones the installation fills in: the power estimate does not use them, and there is no Home Assistant entity for them. A value is
+`null` when the Shogun does not answer the register (the reason is in the `modbus_response` events of the `trace` debug level, label
+`outdoor_unit`). The meanings are those of the Atlantic documentation.
+
+| Field | Register | Meaning |
+|---|---|---|
+| `power_preset_260` | 260 | outdoor unit model: `0` none, `1` ARY 12 (4.1 kW), `2` ARY 14 (5 kW), `3` ARY 18 (6 kW), `4` ARY 24 (8 kW), `5` ARY 30 (10 kW), `6` ARY 36 (11.2 kW), `7` ARY 36 three-phase, `8` ARY 45 (13.3 kW), `9` ARY 45 three-phase (14 kW), `10` ARY 54 (16 kW) |
+| `on_off_280` | 280 | outdoor unit: `0` off, `1` on |
+| `defrost_281` | 281 | defrost in progress: `0` no, `1` yes |
+| `compressor_modulation_282` | 282 | modulation of the outdoor unit (%) |
+| `compressor_runtime_283`, `compressor_runtime_284` | 283–284 | the two words of the compressor running time |
+| `register_285` | 285 | not identified |
+| `mode_286` | 286 | `0` heating, `1` cooling |
+| `fault_code_287` | 287 | outdoor unit fault code |
+| `status_288` | 288 | `0` normal, `1` fault, `2` defrost, `3` pump down, `4` rating |
 
 ## Modbus register reference
 
