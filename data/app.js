@@ -164,42 +164,6 @@ function timeValue(raw) {
     return t === '—' ? '' : t;
 }
 
-function onTimeChange(input, program, day, slot) {
-    const btn = input.parentNode.querySelector('.time-clear');
-    if (btn) btn.hidden = !input.value;
-    return setScheduleTime(program, day, slot, input.value);
-}
-
-function clearTime(btn, program, day, slot) {
-    const input = btn.parentNode.querySelector('.time-input');
-    if (input) input.value = '';
-    btn.hidden = true;
-    btn.blur();
-    return setScheduleTime(program, day, slot, '');
-}
-
-async function setScheduleTime(program, day, slot, value) {
-    try {
-        const body = new URLSearchParams({
-            cmd: 'set_schedule_time',
-            program: String(program),
-            day: String(day),
-            slot: String(slot),
-            time: value ? String(value) : 'none'
-        });
-        const r = await fetch('/action', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body
-        });
-        if (!r.ok) throw new Error(await r.text());
-        await refreshStatus();
-    } catch (e) {
-        alert('Failed to update schedule time: ' + (e.message || 'unknown error'));
-        await refreshStatus();
-    }
-}
-
 async function refreshStatus() {
     try {
         const s = await api('/api/status');
@@ -219,9 +183,7 @@ async function refreshStatus() {
         const zonesBody = document.getElementById('zones-body');
         const editingZone = activeEl && activeEl.tagName === 'INPUT' && zonesBody && zonesBody.contains(activeEl);
         if (!editingZone) renderZones(s);
-        const ae = document.activeElement;
-        const editingTime = ae && ae.classList && ae.classList.contains('time-input');
-        if (!editingTime) renderSchedules(s);
+        renderSchedules(s);
         const c = document.getElementById('connection');
         if (c) {
             c.innerHTML = '<span class="dot"></span>Communication ' + (s.modbus_error ? 'unavailable' : 'OK');
@@ -292,69 +254,364 @@ function renderZones(data) {
     }).join('');
 }
 
-const collapsedSchedules = new Set();
+// ---------- Schedules: one line per day, a click opens a day, nothing is sent before "Save" ----------
 
-function toggleSchedule(i, isOpen) {
-    if (isOpen) collapsedSchedules.delete(i); else collapsedSchedules.add(i);
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DEFAULT_TIMES = ['06:00', '09:00', '11:30', '13:30', '17:00', '23:00'];
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const sched = {
+    data: null,             // last /api/status answer
+    program: 1,
+    open: null,             // index of the day being edited
+    zonesOpen: false,
+    drafts: new Map(),      // "<program>-<day>" -> six times not saved yet
+    failed: new Map(),      // "<program>-<day>" -> why the last saving of this day failed
+    saving: false,
+    notice: '',
+    view: null
+};
+
+function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(props)) {
+        if (key.startsWith('aria-')) node.setAttribute(key, value);
+        else node[key] = value;
+    }
+    node.append(...children);
+    return node;
+}
+
+const dayKey = (day) => `${sched.program}-${day}`;
+const minutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+const formatDay = (times) => times.map(t => t || '--:--').join(' ');
+
+// The six times held by the Shogun for a "<program>-<day>" key ('' = not used), or null when they are not read yet.
+function savedDay(key) {
+    const data = sched.data;
+    if (!data || !data.schedules || data.schedules_read === false) return null;
+    const [program, day] = key.split('-').map(Number);
+    return data.schedules[program - 1].slice(day * 6, day * 6 + 6).map(timeValue);
+}
+
+function dayError(times) {
+    for (let i = 0; i < 6; i += 2) {
+        if (!times[i] !== !times[i + 1]) return 'Each period needs a start and an end.';
+    }
+    let last = -1;
+    for (const t of times) {
+        if (!t) continue;
+        if (minutes(t) <= last) return 'The times must be in ascending order.';
+        last = minutes(t);
+    }
+    return '';
+}
+
+// The Comfort periods of a day as text. An incomplete period keeps its "--:--".
+function summarize(times) {
+    const periods = [0, 2, 4]
+        .filter(i => times[i] || times[i + 1])
+        .map(i => `${times[i] || '--:--'}–${times[i + 1] || '--:--'}`);
+    return periods.join(' · ') || 'No Comfort period';
+}
+
+async function postAction(params) {
+    const r = await fetch('/action', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams(params)
+    });
+    if (!r.ok) throw new Error(await r.text() || r.status);
+}
+
+function setDraft(key, times) {
+    sched.failed.delete(key);
+    sched.notice = '';
+    const saved = savedDay(key);
+    if (saved && formatDay(saved) === formatDay(times)) sched.drafts.delete(key);
+    else sched.drafts.set(key, times);
+}
+
+function editTime(key, slot, value) {
+    const saved = savedDay(key);
+    if (!saved) return;
+    const times = [...(sched.drafts.get(key) || saved)];
+    times[slot] = value;
+    setDraft(key, times);
+}
+
+function copyDay(source, targets) {
+    const key = dayKey(source);
+    const times = sched.drafts.get(key) || savedDay(key);
+    if (!times) return;
+    for (const day of targets) setDraft(dayKey(Number(day)), [...times]);
+    updateSchedules();
+}
+
+function buildDayRow(name, day) {
+    const state = el('small');
+    const bar = el('span', {className: 'day-bar', 'aria-hidden': 'true'});
+    const summary = el('span', {className: 'day-summary'});
+    const chevron = el('span', {className: 'muted', 'aria-hidden': 'true'});
+    const head = el('button', {type: 'button', className: 'day-head'},
+        el('span', {className: 'day-name'}, name, state), bar, summary, chevron);
+    head.addEventListener('click', () => {
+        sched.open = sched.open === day ? null : day;
+        updateSchedules();
+    });
+
+    const periods = [0, 1, 2].map(() => el('div', {className: 'period'}));
+    const groups = periods.map((period, i) =>
+        el('div', {}, el('small', {className: 'muted', textContent: `Comfort ${i + 1}: start → end`}), period));
+    const copy = el('select', {className: 'day-copy', 'aria-label': `Copy ${name} to`});
+    [['', 'Copy to…'], ['0123456', 'Whole week'], ['01234', 'Monday to Friday'], ['56', 'Week-end']]
+        .forEach(([value, text]) => copy.append(el('option', {value, textContent: text})));
+    copy.addEventListener('change', () => {
+        const targets = copy.value;
+        copy.value = '';
+        copyDay(day, targets);
+    });
+
+    const editor = el('div', {className: 'day-editor'}, ...groups, copy);
+    const error = el('div', {className: 'day-error'});
+    const node = el('div', {className: 'day'}, head, editor, error);
+    return {name, day, node, state, bar, summary, chevron, head, periods, copy, editor, error, drawn: null, slots: []};
+}
+
+function buildSlot(row, key, value, slot, disabled) {
+    const label = `${row.name}, ${slot % 2 ? 'end' : 'start'} of period ${Math.floor(slot / 2) + 1}`;
+    const box = el('div', {className: value ? 'slot' : 'slot empty'});
+    if (!value) {
+        const add = el('button', {type: 'button', textContent: '+ time', disabled, 'aria-label': `Add: ${label}`});
+        add.addEventListener('click', () => {
+            editTime(key, slot, DEFAULT_TIMES[slot]);
+            updateSchedules();
+            const input = row.slots[slot].querySelector('input');
+            if (input) input.focus();
+        });
+        box.append(add);
+        return box;
+    }
+    const input = el('input', {type: 'time', value, disabled, required: true, 'aria-label': label});
+    input.addEventListener('input', () => {
+        if (!TIME.test(input.value)) return;        // incomplete entry
+        editTime(key, slot, input.value);
+        // Keep these fields as they are while the user types: only the rest is refreshed.
+        row.drawn = JSON.stringify([key, sched.drafts.get(key) || savedDay(key), disabled]);
+        updateSchedules();
+    });
+    input.addEventListener('blur', () => {
+        const times = sched.drafts.get(key) || savedDay(key);
+        if (!input.value && times) input.value = times[slot];
+    });
+    const remove = el('button', {type: 'button', textContent: '×', disabled, 'aria-label': `Remove: ${label}`});
+    remove.addEventListener('click', () => {
+        editTime(key, slot, '');
+        updateSchedules();
+    });
+    box.append(input, remove);
+    return box;
+}
+
+function updateDayRow(row) {
+    const key = dayKey(row.day);
+    const saved = savedDay(key);
+    const draft = saved ? sched.drafts.get(key) : undefined;
+    const times = draft || saved;
+    const disabled = !times || sched.saving;
+
+    // The fields are rebuilt only when their content changes.
+    const drawn = JSON.stringify([key, times, disabled]);
+    if (drawn !== row.drawn) {
+        row.drawn = drawn;
+        row.slots = DEFAULT_TIMES.map((_, slot) => buildSlot(row, key, times ? times[slot] : '', slot, disabled));
+        row.periods.forEach((period, i) => period.replaceChildren(
+            row.slots[2 * i], el('span', {className: 'muted', textContent: '→'}), row.slots[2 * i + 1]));
+    }
+
+    row.state.textContent = !times ? 'waiting for data' : (draft ? 'modified' : '');
+    row.node.classList.toggle('changed', !!draft);
+    row.summary.textContent = times ? summarize(times) : '';
+
+    row.bar.replaceChildren();
+    for (let i = 0; times && i < 6; i += 2) {
+        if (!times[i] || !times[i + 1] || minutes(times[i + 1]) <= minutes(times[i])) continue;
+        const mark = el('i');
+        mark.style.left = `${minutes(times[i]) / 14.4}%`;
+        mark.style.width = `${(minutes(times[i + 1]) - minutes(times[i])) / 14.4}%`;
+        row.bar.append(mark);
+    }
+
+    const invalid = draft ? dayError(draft) : '';
+    const message = invalid || (draft ? sched.failed.get(key) || '' : '');
+    row.error.textContent = message;
+    row.error.hidden = !message;
+    row.slots.forEach(s => s.classList.toggle('bad', !!invalid && !s.classList.contains('empty')));
+
+    const open = !!times && sched.open === row.day;
+    row.head.disabled = !times;
+    row.head.setAttribute('aria-expanded', String(open));
+    row.head.title = open ? 'Close' : 'Edit';
+    row.chevron.textContent = open ? '▴' : '▾';
+    row.editor.hidden = !open;
+    row.copy.disabled = disabled;
+}
+
+// Zones of the program shown. "Edit" reveals them all: a click on a zone assigns it to this program at once.
+function updateScheduleZones(box) {
+    const data = sched.data;
+    const usable = zonesUsable(data);
+    const zones = data.zones.map((z, i) => ({
+        zone: i + 1, name: z.name || `Zone ${i + 1}`, program: Number(data.schedule_assignments[i])
+    }));
+    const drawn = JSON.stringify([sched.program, sched.zonesOpen, usable, zones]);
+    if (drawn === box.dataset.drawn) return;
+    box.dataset.drawn = drawn;
+
+    const toggle = el('button', {
+        type: 'button', className: 'link', textContent: sched.zonesOpen ? 'Close' : 'Edit',
+        'aria-expanded': String(sched.zonesOpen), 'aria-label': `${sched.zonesOpen ? 'Close' : 'Edit'} zones`
+    });
+    toggle.addEventListener('click', () => {
+        sched.zonesOpen = !sched.zonesOpen;
+        updateSchedules();
+        box.querySelector('.link').focus();
+    });
+    if (!sched.zonesOpen) {
+        const names = zones.filter(z => z.program === sched.program).map(z => z.name);
+        box.replaceChildren(el('span', {textContent: `Zones: ${names.join(', ') || 'none'}`}), toggle);
+        return;
+    }
+    const chips = zones.map(z => {
+        const assigned = z.program === sched.program;
+        const chip = el('button', {
+            type: 'button', className: 'chip', disabled: !usable, 'aria-pressed': String(assigned),
+            textContent: `${z.name} ${assigned ? '✓' : `(P${z.program})`}`
+        });
+        chip.addEventListener('click', async () => {
+            if (assigned) return;
+            sched.notice = '';
+            try {
+                await postAction({cmd: 'set_schedule_program', zone: z.zone, program: sched.program});
+            } catch (e) {
+                sched.notice = `${z.name}: ${e.message}`;
+            }
+            await refreshStatus();
+            updateSchedules();
+        });
+        return chip;
+    });
+    box.replaceChildren(el('span', {textContent: 'Zones on this schedule:'}), ...chips, toggle);
+}
+
+function buildSchedules(body) {
+    const tabs = [1, 2, 3, 4].map(program => {
+        const tab = el('button', {type: 'button', 'aria-label': `Schedule ${program}`},
+            el('span', {className: 'tab-word', textContent: 'Schedule '}), String(program));
+        tab.addEventListener('click', () => {
+            sched.program = program;
+            sched.open = null;
+            sched.zonesOpen = false;
+            updateSchedules();
+        });
+        return tab;
+    });
+    const zones = el('div', {className: 'schedule-zones'});
+    const rows = DAYS.map(buildDayRow);
+    const status = el('span', {className: 'muted', 'aria-live': 'polite'});
+    const cancel = el('button', {type: 'button', className: 'btn btn-light', textContent: 'Cancel'});
+    cancel.addEventListener('click', () => {
+        sched.drafts.clear();
+        sched.failed.clear();
+        sched.notice = '';
+        sched.open = null;
+        updateSchedules();
+    });
+    const save = el('button', {type: 'button', className: 'btn btn-blue', textContent: 'Save'});
+    save.addEventListener('click', saveSchedules);
+    const actions = el('div', {className: 'schedule-actions'}, cancel, save);
+    const footer = el('div', {className: 'schedule-footer'}, status, actions);
+
+    body.replaceChildren(
+        el('div', {className: 'tabs', role: 'group', 'aria-label': 'Schedule shown'}, ...tabs),
+        zones, ...rows.map(r => r.node), footer);
+    return {tabs, zones, rows, status, cancel, save, actions, footer};
+}
+
+function updateSchedules() {
+    const body = document.getElementById('schedules-body');
+    const data = sched.data;
+    if (!body || !data || !data.schedules || !data.schedule_assignments || !data.zones) return;
+    if (!sched.view) sched.view = buildSchedules(body);
+    const view = sched.view;
+
+    // A draft that the Shogun now holds is no longer a modification.
+    for (const [key, times] of sched.drafts) {
+        const saved = savedDay(key);
+        if (saved && formatDay(saved) === formatDay(times)) {
+            sched.drafts.delete(key);
+            sched.failed.delete(key);
+        }
+    }
+
+    view.tabs.forEach((tab, i) => {
+        tab.setAttribute('aria-pressed', String(sched.program === i + 1));
+        tab.classList.toggle('dot-mark', DAYS.some((_, day) => sched.drafts.has(`${i + 1}-${day}`)));
+    });
+    updateScheduleZones(view.zones);
+    view.rows.forEach(updateDayRow);
+
+    const changed = [...sched.drafts.values()];
+    const invalid = changed.filter(dayError).length;
+    let status = '';
+    if (sched.saving) status = `Saving… ${changed.length} day(s) left`;
+    else if (invalid) status = `${invalid} day(s) to correct before saving`;
+    else if (sched.failed.size) status = `${sched.failed.size} day(s) not saved`;
+    else if (sched.notice) status = sched.notice;
+    else if (changed.length) status = `${changed.length} day(s) modified, not saved`;
+    view.status.textContent = status;
+    // The footer only appears when there is something to save or to report.
+    view.footer.hidden = !status;
+    view.actions.hidden = !changed.length;
+    view.save.disabled = sched.saving || !changed.length || invalid > 0;
+    view.cancel.disabled = sched.saving;
+}
+
+// The days are sent one at a time: the Shogun answers once it has read the times back.
+async function saveSchedules() {
+    const pending = [...sched.drafts].filter(([, times]) => !dayError(times));
+    sched.saving = true;
+    sched.open = null;
+    sched.notice = '';
+    sched.failed.clear();
+    updateSchedules();
+    let saved = 0;
+    for (const [key, times] of pending) {
+        const [program, day] = key.split('-');
+        try {
+            await postAction({cmd: 'set_schedule_day', program, day, times: formatDay(times)});
+            await refreshStatus();
+            sched.drafts.delete(key);
+            saved++;
+        } catch (e) {
+            sched.failed.set(key, `Not saved: ${e.message || 'unknown error'}`);
+            await refreshStatus();
+        }
+        updateSchedules();
+    }
+    sched.saving = false;
+    if (!sched.failed.size) sched.notice = `${saved} day(s) saved`;
+    updateSchedules();
 }
 
 function renderSchedules(data) {
-    const body = document.getElementById('schedules-body');
-    if (!data.schedules || !data.schedule_assignments || !data.zones) return;
-    var result = '';
-    var days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-    for (let i = 0; i < 4; i++) {
-        collapsedSchedules.add(i);
-        var assigned = '';
-        for (let j = 0; j < data.schedule_assignments.length; j++) {
-            const scheduleAssignment = data.schedule_assignments[j];
-            if (i + 1 == scheduleAssignment) {
-                if (assigned != '') {
-                    assigned += ', ';
-                }
-                assigned += data.zones[j].name;
-            }
-        }
-        if (assigned == '') {
-            assigned = 'No zone';
-        }
-        result += `
-            <details class='schedule-card' ${collapsedSchedules.has(i) ? '' : 'open'} ontoggle='toggleSchedule(${i}, this.open)'>
-                <summary class='schedule-card-head'>
-                    <div><strong>Schedule ${i + 1}</strong><small>Zones: ${assigned}</small></div>
-                    <span class='badge'>P${i + 1}</span>
-                </summary>
-                <div class='table-wrap'>
-                <table class='schedule-table'>
-                    <thead>
-                    <tr>
-                        <th>Day</th>
-                        <th>Comfort 1</th>
-                        <th>Eco 1</th>
-                        <th>Comfort 2</th>
-                        <th>Eco 2</th>
-                        <th>Comfort 3</th>
-                        <th>Eco 3</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-            `;
-        for (let day = 0; day < 7; day++) {
-            result += `<tr><th>${days[day]}</th>`;
-            for (let j = 0; j < 6; j++) {
-                const tv = timeValue(data.schedules[i][day * 6 + j]);
-                result += `<td class="time-cell"><input type="time" class="time-input" value="${tv}" onchange="onTimeChange(this, ${i + 1}, ${day}, ${j})"><button type="button" class="time-clear" title="Unset" ${tv ? '' : 'hidden'} onclick="clearTime(this, ${i + 1}, ${day}, ${j})">×</button></td>`;
-            }
-            result += `</tr>`;
-        }
-        result += `    
-                    </tbody>
-                    </table>
-                </div>
-                </details>`;
-    }
-    body.innerHTML = result;
+    sched.data = data;
+    updateSchedules();
 }
+
+window.addEventListener('beforeunload', event => {
+    if (sched.drafts.size) event.preventDefault();
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     refreshStatus();

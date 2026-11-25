@@ -251,32 +251,6 @@ tbody td:first-child small {
     overflow-x: auto
 }
 
-.schedule-card {
-    border: 1px solid var(--line);
-    border-radius: 13px;
-    overflow: hidden;
-    background: #fff
-}
-
-.schedule-card-head {
-    padding: 13px 15px;
-    background: #f5f7f9;
-    display: flex;
-    justify-content: space-between;
-    align-items: center
-}
-
-.schedule-card-head strong {
-    display: block;
-    font-size: 14px
-}
-
-.schedule-card-head small {
-    display: block;
-    color: var(--muted);
-    margin-top: 3px
-}
-
 .schedule-table,
 .schedule-table button {
     font-size: 12px
@@ -323,11 +297,6 @@ tbody td:first-child small {
     font-size: .9rem
 }
 
-/* La grille des schedules garde un vrai espacement entre les cartes */
-#schedules-body {
-    gap: 14px
-}
-
 /* Tableau des zones */
 .main-status {
     padding: 6px 0;
@@ -367,83 +336,10 @@ tbody td:first-child small {
     font-size: 12px
 }
 
-/* Cartes de schedules */
-.schedule-card-head {
-    padding: 8px 12px
-}
-
 @media (max-width: 650px) {
     .info-grid {
         gap: 0
     }
-}
-
-/* Plages horaires éditables (champ texte HH:MM) */
-.time-input {
-    width: 100%;
-    min-width: 58px;
-    padding: 2px 3px;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background: transparent;
-    font: inherit;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-    color: var(--text);
-    text-align: center
-}
-
-.time-input:hover,
-.time-input:focus {
-    border-color: var(--line);
-    background: #fff
-}
-
-.time-input::placeholder {
-    color: var(--muted)
-}
-
-.time-cell {
-    white-space: nowrap
-}
-
-/* Schedules : cartes pleine largeur et repliables */
-#schedules-body {
-    grid-template-columns: 1fr
-}
-
-.schedule-card > summary {
-    cursor: pointer;
-    list-style: none;
-    user-select: none
-}
-
-.schedule-card > summary::-webkit-details-marker {
-    display: none
-}
-
-.schedule-card > summary::before {
-    content: "▾";
-    color: var(--muted);
-    margin-right: 10px;
-    transition: transform .15s
-}
-
-.schedule-card:not([open]) > summary::before {
-    transform: rotate(-90deg)
-}
-
-.schedule-card > summary > div {
-    flex: 1
-}
-
-.schedule-card .table-wrap {
-    overflow-x: auto
-}
-
-.schedule-card .schedule-table {
-    width: 100%;
-    border-collapse: collapse
 }
 
 /* Consignes confort / eco */
@@ -508,4 +404,278 @@ select:disabled {
 
 .power-toggle:disabled:hover {
     filter: none
+}
+
+/* ---------- Schedules: one line per day, a click opens a day ---------- */
+[hidden] {
+    display: none !important
+}
+
+.tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    width: fit-content;
+    max-width: 100%;
+    margin: 8px 0;
+    padding: 4px;
+    border-radius: 11px;
+    background: #edf2f7
+}
+
+.tabs button,
+.day-head,
+.link,
+.chip,
+.slot button,
+.slot input,
+.day-copy {
+    font: inherit;
+    color: inherit;
+    cursor: pointer
+}
+
+.tabs button {
+    position: relative;
+    padding: 5px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    font-size: 13px
+}
+
+.tabs button[aria-pressed="true"] {
+    background: var(--blue);
+    color: #fff;
+    font-weight: 700
+}
+
+.tabs .dot-mark::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ef8e1f
+}
+
+.schedule-zones {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 13px
+}
+
+.link {
+    padding: 2px 4px;
+    border: 0;
+    background: none;
+    color: var(--blue)
+}
+
+.chip {
+    padding: 3px 11px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #fff
+}
+
+.chip[aria-pressed="true"] {
+    border-color: var(--blue);
+    background: var(--blue);
+    color: #fff
+}
+
+.day {
+    border-top: 1px solid var(--line)
+}
+
+.day.changed {
+    background: #fff4e2
+}
+
+.day-head {
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr) 260px 12px;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 38px;
+    padding: 4px 8px;
+    border: 0;
+    background: none;
+    text-align: left;
+    font-size: 13px
+}
+
+.day-head:hover:enabled {
+    background: #f5f7f9
+}
+
+.day-name {
+    font-weight: 700
+}
+
+.day-name small {
+    display: block;
+    color: var(--muted);
+    font-weight: 400;
+    font-size: 11px
+}
+
+.day-bar {
+    display: block;
+    position: relative;
+    height: 10px;
+    overflow: hidden;
+    border-radius: 5px;
+    background: #cfe9d9
+}
+
+.day-bar i {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: #ef8e1f
+}
+
+.day-summary {
+    font-variant-numeric: tabular-nums
+}
+
+.day-editor {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) 110px;
+    align-items: end;
+    gap: 8px;
+    padding: 4px 8px 10px
+}
+
+.period {
+    display: flex;
+    align-items: center;
+    gap: 4px
+}
+
+.slot {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    height: 34px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff
+}
+
+.slot input {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    padding: 0 0 0 4px;
+    border: 0;
+    background: none;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums
+}
+
+.slot input::-webkit-calendar-picker-indicator {
+    width: 12px;
+    height: 12px;
+    margin: 0;
+    padding: 0
+}
+
+.slot button {
+    padding: 0 5px;
+    border: 0;
+    background: none;
+    color: var(--muted)
+}
+
+.slot.empty {
+    border-style: dashed;
+    background: none
+}
+
+.slot.empty button {
+    flex: 1;
+    font-size: 12px
+}
+
+.slot.bad {
+    border-color: var(--red)
+}
+
+.day-copy {
+    width: 100%;
+    height: 34px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    font-size: 12px
+}
+
+.day-error {
+    padding: 0 8px 8px;
+    color: var(--red);
+    font-size: 12px
+}
+
+.schedule-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    font-size: 13px
+}
+
+.schedule-actions {
+    display: flex;
+    gap: 8px;
+    margin-left: auto
+}
+
+.schedule-actions .btn {
+    padding: 7px 16px;
+    border-radius: 9px;
+    font-size: 13px
+}
+
+@media (max-width: 700px) {
+    .day-editor {
+        grid-template-columns: minmax(0, 1fr)
+    }
+}
+
+@media (max-width: 600px) {
+    .tab-word {
+        display: none
+    }
+
+    .tabs button {
+        padding: 5px 16px
+    }
+
+    .day-head {
+        grid-template-columns: 90px minmax(0, 1fr) 12px;
+        row-gap: 4px;
+        padding-block: 7px
+    }
+
+    .day-summary {
+        grid-row: 2;
+        grid-column: 1 / -1
+    }
+
+    .day-head > :last-child {
+        grid-row: 1;
+        grid-column: 3
+    }
 }

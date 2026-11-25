@@ -235,7 +235,7 @@ The dashboard (`/`) shows, and lets you change:
 
 - **System:** date and time, central fault, number of zones, building mode (heating, cooling, dehumidification, off), automatic heating / cooling changeover and outdoor temperature.
 - **Zones:** for every zone, the ambient temperature, the **Active setpoint** (the field changes the setpoint in use: the manual setpoint in manual mode, the Comfort or Eco setpoint in schedule mode, the label under it tells which), the **Comfort / Eco** setpoints, the **Power** button, the **Control mode** (schedule or manual) and the **Schedule** program. The **All zones** form sets Comfort and Eco on every zone.
-- **Schedules:** the four programs, each as a table of 7 days × 6 time slots (Comfort 1, Eco 1, Comfort 2, Eco 2, Comfort 3, Eco 3). Every slot is a text field: type the time (`06:30`, `6:30` or `0630`) and press Enter or leave the field, or empty the field if the slot is not used.
+- **Schedules:** one tab per program and one line per day, with the Comfort periods on a 24 h bar and as text. Click a day to edit its three Comfort periods (start and end), remove a time with **×**, add one with **+ time**, or copy the day to the week, Monday to Friday or the week-end. Nothing is sent before **Save**, which accepts complete periods with times in ascending order. The zones of the program are listed above the days: **Edit**, then a zone name, assigns the zone to the program at once.
 
 With the building mode off, the Shogun is in stand-by (frost protection only) and the zone controls are disabled. A zone that is off has no editable Active setpoint.
 
@@ -244,6 +244,8 @@ With the building mode off, the Shogun is in stand-by (frost protection only) an
 With MQTT configured, the device appears in Home Assistant through MQTT Discovery. It creates a thermostat, the temperature, damper and program sensors and the Comfort, Eco, Active setpoint, manual setpoint and limits numbers, the control mode and schedule program selects and the power and sensor lock switches for every zone, plus the building mode, the automatic changeover and the estimated power and energy.
 
 The **schedules** can be edited from Home Assistant too: there is one text entity per program and per day (`Schedule 1 Monday`, 28 in all). Its value holds the six switch times of the day, in the order Comfort 1, Eco 1, Comfort 2, Eco 2, Comfort 3, Eco 3, for example `06:00 09:00 11:30 13:30 17:00 23:00`. Times can be typed as `06:30`, `6:30` or `0630`; write `--:--` (or `none`) for a slot that is not used.
+
+For easier editing, the [schedule card](homeassistant/README.md) shows the programs as a weekly grid with time pickers on a Home Assistant dashboard.
 
 The topics, the payloads, the commands, the debug levels and the Modbus register reference are described in [`MQTT_HOME_ASSISTANT.md`](MQTT_HOME_ASSISTANT.md).
 
@@ -283,6 +285,7 @@ It is meant to give an order of magnitude and to feed the Home Assistant Energy 
 | `src/Config.cpp`, `src/Config.h` | configuration stored in flash |
 | `src/main.cpp` | entry point and pin assignment |
 | `data/` | web interface stored in LittleFS (`index.html`, `config.html`, `app.js`, `style.css`) |
+| `homeassistant/` | schedule card for Home Assistant dashboards, with its installation notes |
 | `docs/gtb-shogun.pdf` | Atlantic technical reference (Modbus registers, wiring) |
 | `MQTT_HOME_ASSISTANT.md` | MQTT topics, Home Assistant entities, Modbus registers |
 | `platformio.ini`, `partitions.csv` | build and flash layout |

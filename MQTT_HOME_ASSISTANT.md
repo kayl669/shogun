@@ -160,13 +160,14 @@ The climate entity shows the **active setpoint** (`target`) and its temperature 
 [`setpoint`](#setpoint-manual-setpoint)). Its range is 10–30 °C, step 0.5; the number entities share the same fixed range, whereas the
 Shogun applies its own zone limits (see `min_setpoint` / `max_setpoint`).
 
-**Schedules** (state from `state/schedule_<program>`, 28 entities, category *Configuration*)
+**Schedules** (state from `state/schedule_<program>`, 28 entities, category *Diagnostic*)
 
 | Entity | Type | State field | Command |
 |---|---|---|---|
 | `Schedule <program> <day>`, for example `Schedule 1 Monday` | text, 35 characters | `mon` … `sun` | `schedule/<program>/<day>` |
 
-There is one entity per program (1–4) and per day, and its value holds the six switch times of the day. They stay available whatever
+There is one entity per program (1–4) and per day, and its value holds the six switch times of the day. They are grouped in the
+*Diagnostic* section of the device page, apart from the zone settings, and can still be edited there. They stay available whatever
 the building mode, since the programs are stored settings. See [schedule commands](#schedule-commands) for the format.
 
 Not exposed on purpose: the Modbus slave communication flag (HR 15, switching it off would cut the Modbus link), and the
@@ -426,7 +427,7 @@ Holding Registers `401 + (program − 1) × 42 + day × 6 + slot`, with `program
 `slot` 0–5 = Comfort 1, Eco 1, Comfort 2, Eco 2, Comfort 3, Eco 3, each one the time **from which** the zone switches to Comfort or to Eco.
 Each value is an hour and minute: the high byte holds the minutes, the low byte the hours (for example `7691` = `0x1E0B` = 11:30).
 `65535` (−1) means the slot is not used. Example of the Atlantic documentation for registers `401` to `406`: `6`, `9`, `7691`, `7693`, `17`, `23`,
-i.e. 06:00, 09:00, 11:30, 13:30, 17:00, 23:00. The web page edits one slot at a time, MQTT and Home Assistant a whole day (see [schedule commands](#schedule-commands)).
+i.e. 06:00, 09:00, 11:30, 13:30, 17:00, 23:00. The web page, MQTT and Home Assistant write a whole day at a time (see [schedule commands](#schedule-commands)).
 
 ## Web page
 
@@ -441,7 +442,7 @@ state topics) and sends its commands to `/action`. `/config` is the configuratio
 | Control mode | `control_mode` |
 | Schedule (program of the zone) | `schedule` |
 | Power (single On / Off button, green when on) | `power`: only the power changes, the zone keeps its control mode |
-| Schedules: every time slot is a text field (type `06:30`, `6:30`, `0630` or `630`, leave it empty if the slot is not used), collapsible per program | [schedule commands](#schedule-commands) (a whole day at a time) |
+| Schedules: one line per day, a click opens the time fields, **Save** sends the modified days | [schedule commands](#schedule-commands) (a whole day at a time) |
 
 **Disabled controls.** The page only enables what can be used in the current configuration. With the **building mode off**
 (*Arrêt (Hors-Gel)*, a stand-by where the Shogun only protects the house from frost) or not known yet, the zones are stopped, so the Power

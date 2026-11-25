@@ -481,30 +481,6 @@ namespace ShogunAC {
         }
     }
 
-    // Writes one schedule time slot and reads it back.
-    // Returns 0 when the Shogun kept the value, 1 on a Modbus error, 2 when it kept another value (scheduleTimes then
-    // holds the value really kept).
-    uint8_t ShogunAC::writeScheduleTime(uint8_t program, uint8_t day, uint8_t slot, uint16_t value, const char *source, String &error) {
-        if (program < 1 || program > 4 || day > 6 || slot > 5) { error = "Invalid program, day or slot"; return 1; }
-        const uint8_t offset = day * 6 + slot;
-        const uint16_t address = REG_SCHEDULE_BASE + (program - 1) * REG_SCHEDULE_WORDS + offset;
-        const String label = String(source) + "_schedule_time";
-
-        while (Serial1.available()) Serial1.read();
-        uint8_t result = modbusWriteSingle(address, value, label.c_str());
-        if (result != modbus.ku8MBSuccess) { error = "Modbus schedule time write failed"; return 1; }
-
-        delay(200);     // let the controller apply the new time before reading it back
-        result = modbusReadHolding(address, 1, (label + "_verify").c_str());
-        if (result != modbus.ku8MBSuccess) { error = "Schedule time verification failed"; return 1; }
-
-        const uint16_t kept = modbus.getResponseBuffer(0);
-        scheduleTimes[program - 1][offset] = kept;
-        if (kept == value) return 0;
-        error = "Shogun kept " + formatScheduleTime(kept) + " instead of " + formatScheduleTime(value);
-        return 2;
-    }
-
     // Writes the six time slots of a day (values in register order) and reads them back with a single request. Only the
     // slots that change are written. A second pass rewrites what the Shogun did not keep, in case it refused an
     // intermediate state (for example times that are not in ascending order while the day is being replaced).
@@ -1119,7 +1095,7 @@ namespace ShogunAC {
                       .num("min", 17)
                       .num("max", 80)
                       .str("pattern", dayPattern)
-                      .str("entity_category", "config")
+                      .str("entity_category", "diagnostic")      // groups the 28 schedules apart from the zone settings
                       .str("icon", "mdi:calendar-clock");
                 publish(e);
             }
@@ -1919,6 +1895,7 @@ namespace ShogunAC {
             .num("outdoor_temperature", currentOutdoorTemp, 1)
             .raw("zones", zoneList.toString())
             .raw("schedule_assignments", assignments.toString())
+            .boolean("schedules_read", schedulesRead)
             .raw("schedules", schedules.toString());
         server.sendHeader("Access-Control-Allow-Origin", "*");
         server.send(200, "application/json; charset=utf-8", status.toString());
@@ -2068,27 +2045,31 @@ namespace ShogunAC {
             return;
         }
 
-        if (action == "set_schedule_time") {
-            // program: 1..4, day: 0 (Monday)..6 (Sunday), slot: 0..5 (Comfort1, Eco1, Comfort2, Eco2, Comfort3, Eco3)
-            // time: "HH:MM", or "none"/empty to disable the slot (Shogun value -1 = unused).
-            if (!server.hasArg("program") || !server.hasArg("day") || !server.hasArg("slot") || !server.hasArg("time")) {
-                server.send(400, "text/plain", "Missing program, day, slot or time");
+        if (action == "set_schedule_day") {
+            // program: 1..4, day: 0 (Monday)..6 (Sunday), times: the six times of the day as in the MQTT schedule command,
+            // "HH:MM" or "--:--" (slot not used) separated by spaces.
+            if (!server.hasArg("program") || !server.hasArg("day") || !server.hasArg("times")) {
+                server.send(400, "text/plain", "Missing program, day or times");
                 return;
             }
             const int program = server.arg("program").toInt();
             const int day = server.arg("day").toInt();
-            const int slot = server.arg("slot").toInt();
-            if (program < 1 || program > 4 || day < 0 || day > 6 || slot < 0 || slot > 5) {
-                server.send(400, "text/plain", "Invalid program, day or slot");
+            if (program < 1 || program > 4 || day < 0 || day > 6) {
+                server.send(400, "text/plain", "Invalid program or day");
                 return;
             }
-            uint16_t value;
-            if (!parseScheduleTime(server.arg("time"), value)) {
-                server.send(400, "text/plain", "Invalid time");
-                return;
-            }
+            uint16_t values[6];
             String error;
-            const uint8_t result = writeScheduleTime((uint8_t) program, (uint8_t) day, (uint8_t) slot, value, "web", error);
+            if (!parseScheduleDay(server.arg("times"), values, error)) {
+                server.send(400, "text/plain", error);
+                return;
+            }
+            // Only the slots that differ from the times read are written, so they must have been read.
+            if (!schedulesRead) {
+                server.send(503, "text/plain", "Schedules not read yet");
+                return;
+            }
+            const uint8_t result = writeScheduleDay((uint8_t) program, (uint8_t) day, values, "web", error);
             if (result == 1) {
                 server.send(500, "text/plain", error);
                 return;
